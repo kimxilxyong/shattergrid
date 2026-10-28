@@ -13,6 +13,7 @@ config_version=5
 config/name="Shattergrid"
 config/version="0.2.0-alpha"
 run/main_scene="res://main.tscn"
+config/use_hidden_project_data_directory=false
 config/features=PackedStringArray("4.7", "Forward Plus")
 run/max_fps=60
 config/icon="res://icon.svg"

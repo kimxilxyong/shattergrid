@@ -6,7 +6,5 @@ reloadable = true
 
 [libraries]
 
-macos.debug = "res://native/bin/libshattergrid_core.dylib"
-macos.release = "res://native/bin/libshattergrid_core.dylib"
-windows.debug.x86_64 = "res://native/bin/shattergrid_core.dll"
-windows.release.x86_64 = "res://native/bin/shattergrid_core.dll"
+# Linux
+linux.x86_64 = "res://native/bin/libshattergrid_core.so"
