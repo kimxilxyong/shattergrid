@@ -6,5 +6,4 @@ reloadable = true
 
 [libraries]
 
-# Linux
-linux.x86_64 = "res://native/bin/libshattergrid_core.so"
+linux.x86_64 = "bin/libshattergrid_core.so"

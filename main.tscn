@@ -1,10 +1,10 @@
-[gd_scene load_steps=22 format=3]
+[gd_scene format=3 uid="uid://b5aaikuq7vtoo"]
 
-[ext_resource type="Script" path="res://scripts/core/main.gd" id="1_main"]
-[ext_resource type="Script" path="res://scripts/voxel/voxel_world_3d.gd" id="2_world"]
-[ext_resource type="Script" path="res://scripts/core/player.gd" id="3_player"]
-[ext_resource type="Script" path="res://scripts/core/pause_menu.gd" id="4_pause"]
-[ext_resource type="Script" path="res://scripts/core/game_hud.gd" id="5_hud"]
+[ext_resource type="Script" uid="uid://34we0wjfjq65" path="res://scripts/core/main.gd" id="1_main"]
+[ext_resource type="Script" uid="uid://bu6lfd37ertpn" path="res://scripts/voxel/voxel_world_3d.gd" id="2_world"]
+[ext_resource type="Script" uid="uid://dppf1evxsqdub" path="res://scripts/core/player.gd" id="3_player"]
+[ext_resource type="Script" uid="uid://bm47gs46sksa0" path="res://scripts/core/pause_menu.gd" id="4_pause"]
+[ext_resource type="Script" uid="uid://wha02f5c8w43" path="res://scripts/core/game_hud.gd" id="5_hud"]
 
 [sub_resource type="ProceduralSkyMaterial" id="Sky_1"]
 sky_horizon_color = Color(0.64625, 0.65575, 0.67075, 1)
@@ -18,25 +18,23 @@ background_mode = 2
 sky = SubResource("Sky_2")
 tonemap_mode = 2
 ssao_enabled = true
-ssil_enabled = false
-sdfgi_enabled = false
 glow_enabled = true
 fog_enabled = true
 fog_light_color = Color(0.72, 0.75, 0.79, 1)
 fog_density = 0.002
 
-[sub_resource type="WorldBoundaryShape3D" id="Ground_shape"]
+[sub_resource type="PhysicsMaterial" id="Ground_physics"]
+friction = 0.95
+bounce = 0.02
 
-[sub_resource type="PlaneMesh" id="Ground_mesh"]
-size = Vector2(400, 400)
+[sub_resource type="WorldBoundaryShape3D" id="Ground_shape"]
 
 [sub_resource type="StandardMaterial3D" id="Ground_paint"]
 albedo_color = Color(0.35, 0.36, 0.33, 1)
 roughness = 0.95
 
-[sub_resource type="PhysicsMaterial" id="Ground_physics"]
-friction = 0.95
-bounce = 0.02
+[sub_resource type="PlaneMesh" id="Ground_mesh"]
+size = Vector2(400, 400)
 
 [sub_resource type="CapsuleShape3D" id="Player_shape"]
 radius = 0.4
@@ -62,11 +60,11 @@ fill_from = Vector2(0.5, 0.5)
 fill_to = Vector2(1, 0.5)
 
 [sub_resource type="StyleBoxFlat" id="Pause_card"]
-bg_color = Color(0.035, 0.055, 0.085, 0.96)
 content_margin_left = 34.0
 content_margin_top = 30.0
 content_margin_right = 34.0
 content_margin_bottom = 30.0
+bg_color = Color(0.035, 0.055, 0.085, 0.96)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
@@ -79,7 +77,16 @@ corner_radius_bottom_left = 18
 shadow_color = Color(0, 0, 0, 0.5)
 shadow_size = 24
 
+[sub_resource type="StyleBoxFlat" id="Pause_divider"]
+bg_color = Color(0.22, 0.68, 0.88, 0.5)
+corner_radius_top_left = 1
+corner_radius_top_right = 1
+corner_radius_bottom_right = 1
+corner_radius_bottom_left = 1
+
 [sub_resource type="StyleBoxFlat" id="Pause_button"]
+content_margin_left = 18.0
+content_margin_right = 18.0
 bg_color = Color(0.075, 0.11, 0.16, 1)
 border_width_left = 1
 border_width_top = 1
@@ -90,24 +97,10 @@ corner_radius_top_left = 8
 corner_radius_top_right = 8
 corner_radius_bottom_right = 8
 corner_radius_bottom_left = 8
-content_margin_left = 18.0
-content_margin_right = 18.0
-
-[sub_resource type="StyleBoxFlat" id="Pause_button_hover"]
-bg_color = Color(0.08, 0.3, 0.42, 1)
-border_width_left = 1
-border_width_top = 1
-border_width_right = 1
-border_width_bottom = 1
-border_color = Color(0.38, 0.86, 1, 0.8)
-corner_radius_top_left = 8
-corner_radius_top_right = 8
-corner_radius_bottom_right = 8
-corner_radius_bottom_left = 8
-content_margin_left = 18.0
-content_margin_right = 18.0
 
 [sub_resource type="StyleBoxFlat" id="Pause_button_pressed"]
+content_margin_left = 18.0
+content_margin_right = 18.0
 bg_color = Color(0.045, 0.2, 0.3, 1)
 border_width_left = 1
 border_width_top = 1
@@ -118,8 +111,20 @@ corner_radius_top_left = 8
 corner_radius_top_right = 8
 corner_radius_bottom_right = 8
 corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="Pause_button_hover"]
 content_margin_left = 18.0
 content_margin_right = 18.0
+bg_color = Color(0.08, 0.3, 0.42, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.38, 0.86, 1, 0.8)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
 
 [sub_resource type="StyleBoxFlat" id="Pause_button_focus"]
 bg_color = Color(0, 0, 0, 0)
@@ -133,56 +138,49 @@ corner_radius_top_right = 8
 corner_radius_bottom_right = 8
 corner_radius_bottom_left = 8
 
-[sub_resource type="StyleBoxFlat" id="Pause_divider"]
-bg_color = Color(0.22, 0.68, 0.88, 0.5)
-corner_radius_top_left = 1
-corner_radius_top_right = 1
-corner_radius_bottom_right = 1
-corner_radius_bottom_left = 1
-
-[node name="Main" type="Node3D"]
+[node name="Main" type="Node3D" unique_id=1460876918]
 script = ExtResource("1_main")
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1348968782]
 environment = SubResource("Env_1")
 
-[node name="Sun" type="DirectionalLight3D" parent="."]
+[node name="Sun" type="DirectionalLight3D" parent="." unique_id=1848409515]
 transform = Transform3D(0.86, -0.29, 0.42, 0, 0.82, 0.57, -0.51, -0.49, 0.71, 0, 40, 0)
 light_energy = 1.1
 shadow_enabled = true
 directional_shadow_max_distance = 120.0
 
-[node name="Ground" type="StaticBody3D" parent="."]
+[node name="Ground" type="StaticBody3D" parent="." unique_id=1456694097]
 physics_material_override = SubResource("Ground_physics")
 
-[node name="Collision" type="CollisionShape3D" parent="Ground"]
+[node name="Collision" type="CollisionShape3D" parent="Ground" unique_id=663298036]
 shape = SubResource("Ground_shape")
 
-[node name="Mesh" type="MeshInstance3D" parent="Ground"]
-mesh = SubResource("Ground_mesh")
+[node name="Mesh" type="MeshInstance3D" parent="Ground" unique_id=1481085214]
 material_override = SubResource("Ground_paint")
+mesh = SubResource("Ground_mesh")
 
-[node name="VoxelWorld" type="Node3D" parent="."]
+[node name="VoxelWorld" type="Node3D" parent="." unique_id=131293647]
 script = ExtResource("2_world")
 
-[node name="Player" type="CharacterBody3D" parent="."]
+[node name="Player" type="CharacterBody3D" parent="." unique_id=350904123]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 16)
 script = ExtResource("3_player")
 
-[node name="Collision" type="CollisionShape3D" parent="Player"]
+[node name="Collision" type="CollisionShape3D" parent="Player" unique_id=548919672]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
 shape = SubResource("Player_shape")
 
-[node name="Camera3D" type="Camera3D" parent="Player"]
+[node name="Camera3D" type="Camera3D" parent="Player" unique_id=211012010]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.65, 0)
 keep_aspect = 0
 fov = 90.0
 far = 400.0
 
-[node name="HUD" type="CanvasLayer" parent="."]
+[node name="HUD" type="CanvasLayer" parent="." unique_id=1795933641]
 script = ExtResource("5_hud")
 
-[node name="Crosshair" type="Label" parent="HUD"]
+[node name="Crosshair" type="Label" parent="HUD" unique_id=1313235847]
 anchors_preset = 8
 anchor_left = 0.5
 anchor_top = 0.5
@@ -197,15 +195,14 @@ label_settings = SubResource("Hud_text")
 horizontal_alignment = 1
 vertical_alignment = 1
 
-[node name="Counter" type="Label" parent="HUD"]
-anchors_preset = 0
+[node name="Counter" type="Label" parent="HUD" unique_id=947472681]
 offset_left = 12.0
 offset_top = 8.0
 offset_right = 760.0
 offset_bottom = 52.0
 label_settings = SubResource("Hud_text")
 
-[node name="Interaction" type="Label" parent="HUD"]
+[node name="Interaction" type="Label" parent="HUD" unique_id=182685435]
 anchors_preset = 8
 anchor_left = 0.5
 anchor_top = 0.5
@@ -219,7 +216,7 @@ label_settings = SubResource("Hud_text")
 horizontal_alignment = 1
 vertical_alignment = 1
 
-[node name="Help" type="Label" parent="HUD"]
+[node name="Help" type="Label" parent="HUD" unique_id=891763876]
 anchors_preset = 2
 anchor_top = 1.0
 anchor_bottom = 1.0
@@ -230,12 +227,12 @@ offset_bottom = -10.0
 text = "WASD mover/conducir  ·  E entrar/salir del vehículo  ·  Espacio saltar/freno de mano  ·  Clic izq cañón  ·  Clic der agarrar  ·  G/clic medio bomba  ·  P pausa  ·  R reiniciar  ·  Esc liberar ratón"
 label_settings = SubResource("Hud_text")
 
-[node name="PauseMenu" type="CanvasLayer" parent="."]
-layer = 100
+[node name="PauseMenu" type="CanvasLayer" parent="." unique_id=1535070177]
 process_mode = 3
+layer = 100
 script = ExtResource("4_pause")
 
-[node name="Overlay" type="Control" parent="PauseMenu"]
+[node name="Overlay" type="Control" parent="PauseMenu" unique_id=450734584]
 visible = false
 layout_mode = 3
 anchors_preset = 15
@@ -245,19 +242,19 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 1
 
-[node name="Backdrop" type="TextureRect" parent="PauseMenu/Overlay"]
+[node name="Backdrop" type="TextureRect" parent="PauseMenu/Overlay" unique_id=136195625]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+mouse_filter = 2
 texture = SubResource("Pause_vignette")
 expand_mode = 1
 stretch_mode = 6
-mouse_filter = 2
 
-[node name="Layout" type="CenterContainer" parent="PauseMenu/Overlay"]
+[node name="Layout" type="CenterContainer" parent="PauseMenu/Overlay" unique_id=227050455]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -265,42 +262,42 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="MenuCard" type="PanelContainer" parent="PauseMenu/Overlay/Layout"]
+[node name="MenuCard" type="PanelContainer" parent="PauseMenu/Overlay/Layout" unique_id=1592584584]
 custom_minimum_size = Vector2(440, 0)
 layout_mode = 2
 theme_override_styles/panel = SubResource("Pause_card")
 
-[node name="Content" type="VBoxContainer" parent="PauseMenu/Overlay/Layout/MenuCard"]
+[node name="Content" type="VBoxContainer" parent="PauseMenu/Overlay/Layout/MenuCard" unique_id=67212812]
 layout_mode = 2
 theme_override_constants/separation = 12
 
-[node name="Eyebrow" type="Label" parent="PauseMenu/Overlay/Layout/MenuCard/Content"]
+[node name="Eyebrow" type="Label" parent="PauseMenu/Overlay/Layout/MenuCard/Content" unique_id=1409200165]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.38, 0.86, 1, 1)
 theme_override_font_sizes/font_size = 14
 text = "SHATTERGRID  /  SISTEMA"
 horizontal_alignment = 1
 
-[node name="Title" type="Label" parent="PauseMenu/Overlay/Layout/MenuCard/Content"]
+[node name="Title" type="Label" parent="PauseMenu/Overlay/Layout/MenuCard/Content" unique_id=891297183]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.94, 0.98, 1, 1)
 theme_override_font_sizes/font_size = 40
 text = "JUEGO EN PAUSA"
 horizontal_alignment = 1
 
-[node name="Subtitle" type="Label" parent="PauseMenu/Overlay/Layout/MenuCard/Content"]
+[node name="Subtitle" type="Label" parent="PauseMenu/Overlay/Layout/MenuCard/Content" unique_id=959420001]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.65, 0.72, 0.8, 1)
 theme_override_font_sizes/font_size = 15
 text = "La simulación y la destrucción están detenidas"
 horizontal_alignment = 1
 
-[node name="Divider" type="Panel" parent="PauseMenu/Overlay/Layout/MenuCard/Content"]
+[node name="Divider" type="Panel" parent="PauseMenu/Overlay/Layout/MenuCard/Content" unique_id=902671717]
 custom_minimum_size = Vector2(0, 2)
 layout_mode = 2
 theme_override_styles/panel = SubResource("Pause_divider")
 
-[node name="ResumeButton" type="Button" parent="PauseMenu/Overlay/Layout/MenuCard/Content"]
+[node name="ResumeButton" type="Button" parent="PauseMenu/Overlay/Layout/MenuCard/Content" unique_id=1113420172]
 custom_minimum_size = Vector2(0, 52)
 layout_mode = 2
 focus_neighbor_bottom = NodePath("../RestartButton")
@@ -308,12 +305,12 @@ theme_override_colors/font_color = Color(0.92, 0.97, 1, 1)
 theme_override_colors/font_hover_color = Color(1, 1, 1, 1)
 theme_override_font_sizes/font_size = 18
 theme_override_styles/normal = SubResource("Pause_button")
-theme_override_styles/hover = SubResource("Pause_button_hover")
 theme_override_styles/pressed = SubResource("Pause_button_pressed")
+theme_override_styles/hover = SubResource("Pause_button_hover")
 theme_override_styles/focus = SubResource("Pause_button_focus")
 text = "CONTINUAR"
 
-[node name="RestartButton" type="Button" parent="PauseMenu/Overlay/Layout/MenuCard/Content"]
+[node name="RestartButton" type="Button" parent="PauseMenu/Overlay/Layout/MenuCard/Content" unique_id=220711955]
 custom_minimum_size = Vector2(0, 52)
 layout_mode = 2
 focus_neighbor_top = NodePath("../ResumeButton")
@@ -322,12 +319,12 @@ theme_override_colors/font_color = Color(0.92, 0.97, 1, 1)
 theme_override_colors/font_hover_color = Color(1, 1, 1, 1)
 theme_override_font_sizes/font_size = 18
 theme_override_styles/normal = SubResource("Pause_button")
-theme_override_styles/hover = SubResource("Pause_button_hover")
 theme_override_styles/pressed = SubResource("Pause_button_pressed")
+theme_override_styles/hover = SubResource("Pause_button_hover")
 theme_override_styles/focus = SubResource("Pause_button_focus")
 text = "REINICIAR ESCENA"
 
-[node name="QuitButton" type="Button" parent="PauseMenu/Overlay/Layout/MenuCard/Content"]
+[node name="QuitButton" type="Button" parent="PauseMenu/Overlay/Layout/MenuCard/Content" unique_id=1427542158]
 custom_minimum_size = Vector2(0, 52)
 layout_mode = 2
 focus_neighbor_top = NodePath("../RestartButton")
@@ -335,12 +332,12 @@ theme_override_colors/font_color = Color(0.92, 0.97, 1, 1)
 theme_override_colors/font_hover_color = Color(1, 1, 1, 1)
 theme_override_font_sizes/font_size = 18
 theme_override_styles/normal = SubResource("Pause_button")
-theme_override_styles/hover = SubResource("Pause_button_hover")
 theme_override_styles/pressed = SubResource("Pause_button_pressed")
+theme_override_styles/hover = SubResource("Pause_button_hover")
 theme_override_styles/focus = SubResource("Pause_button_focus")
 text = "SALIR AL ESCRITORIO"
 
-[node name="Hint" type="Label" parent="PauseMenu/Overlay/Layout/MenuCard/Content"]
+[node name="Hint" type="Label" parent="PauseMenu/Overlay/Layout/MenuCard/Content" unique_id=2010063333]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.52, 0.6, 0.68, 1)
 theme_override_font_sizes/font_size = 13
