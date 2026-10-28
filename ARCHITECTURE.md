@@ -1,5 +1,81 @@
 # Teardown-style voxel architecture
 
+## System architecture at a glance
+
+```mermaid
+flowchart TB
+    subgraph app["Godot application (main.tscn)"]
+        Main["Main bootstrap"]
+        Player["Player and gameplay<br/>weapons, props, doors, vehicles"]
+        HUD["HUD and diagnostics"]
+        World["VoxelWorld3D<br/>world ownership, spatial queries, destruction"]
+        Body["VoxelBody3D<br/>static / dynamic physics state"]
+        Shape["VoxelShape3D<br/>transform, anchors, palette"]
+        Data["VoxelShapeData<br/>dense voxel volume"]
+        Palette["VoxelPalette<br/>visual and physical materials"]
+        Loader["ScenarioLoader"]
+        Renderer["VoxelRenderSystem"]
+        Water["Water, ropes, environment"]
+
+        Main --> Loader
+        Main --> Renderer
+        Main --> HUD
+        Main --> Player
+        Loader -->|"fallback scenario"| World
+        World --> Body --> Shape --> Data
+        Shape --> Palette
+        Player -->|"damage and interactions"| World
+        World -->|"voxel/body events"| HUD
+        Loader -->|"map extras"| Water
+    end
+
+    subgraph content["Scenario inputs"]
+        Map["Optional user-provided Teardown map<br/>main.xml + vox/"]
+        Importer["TeardownMapImporter<br/>and TeardownMapCache"]
+        Included["Included .vox assets<br/>fallback neighborhood"]
+        Map --> Importer --> World
+        Loader -. "optional map import" .-> Importer
+        Included --> Loader
+    end
+
+    subgraph native["C++ GDExtension (native/)"]
+        Kernels["VoxelShapeData, asset decoder,<br/>damage / connectivity / import planners,<br/>collision, rope and runtime helpers"]
+    end
+
+    subgraph render["Rendering path"]
+        Atlas["Voxel and macrocell atlases<br/>dirty-region uploads"]
+        Effect["Dedicated CompositorEffect<br/>POST_OPAQUE"]
+        GPU["GPU BVH + DDA shaders<br/>voxel color and depth"]
+        Renderer --> Atlas --> Effect --> GPU
+        World -->|"shape changes and splits"| Renderer
+        Shape -->|"voxel data and palette"| Atlas
+    end
+
+    subgraph physics["Physics path"]
+        Collision["Collision installation<br/>and handoff"]
+        Jolt["Godot Jolt Physics"]
+        Collision --> Jolt
+        Body --> Collision
+        Jolt -->|"simulation transforms"| Body
+    end
+
+    Data -. "native voxel operations" .-> Kernels
+    Loader -. "native import planning / decoding" .-> Kernels
+    World -. "native damage, connectivity, budgets" .-> Kernels
+    Shape -. "voxel change signals" .-> Renderer
+    Water -->|"meshes, constraints and effects"| World
+
+    Tests["tests/: self-tests, probes, benchmarks"]
+    Prototype["prototype/: isolated renderer experiments"]
+    Tests -. "validate" .-> World
+    Prototype -. "experiments; not main runtime" .-> Effect
+```
+
+The solid arrows show runtime ownership or data flow; dotted arrows show native helper calls,
+notifications, or supporting project areas. The optional map is supplied by the user and is not
+included in the repository. Rendering and collision are separate consumers of the same voxel
+shapes: the renderer updates GPU atlases, while the physics path builds Jolt collision.
+
 ## Renderer decision
 
 The project uses **Vulkan 1.2 through Godot Forward+ and its global `RenderingDevice`**. It does not

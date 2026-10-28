@@ -25,8 +25,8 @@
 - Imported vehicles with suspension, exterior/cabin camera, and working lights.
 - Optional XML/VOX scene importer for local testing with user-provided data.
 
-Subsystem descriptions, ownership, invariants, and measurements are documented in
-[ARCHITECTURE.md](ARCHITECTURE.md).
+See the [architecture diagram and subsystem guide](ARCHITECTURE.md#system-architecture-at-a-glance)
+for the runtime flow, ownership, invariants, and measurements.
 
 ## Requirements
 
