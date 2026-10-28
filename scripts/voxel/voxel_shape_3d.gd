@@ -10,26 +10,26 @@ var palette: VoxelPalette
 var anchor_indices := PackedInt32Array()
 var anchored := true
 var voxel_size := 0.1
-## Multiplicador authored por `<vox density="…">`/`<voxbox density="…">`. La paleta conserva la
-## densidad física del material y este valor conserva exactamente el lastre relativo escrito por el
-## nivel. La fracción hueca interna vive separada en `physical_fill_scale`.
+## Multiplier authored by `<vox density="…">`/`<voxbox density="…">`. The palette retains the
+## material's physical density, while this value preserves the relative ballast specified by the
+## level. The internal void fraction is stored separately in `physical_fill_scale`.
 var density_scale := 1.0
-## Fracción volumétrica física interna. Los props authored de Teardown son arte voxel de 10 cm:
-## una celda de chapa representa milímetros, no un cubo macizo del material. Se separa del
-## `density_scale` XML para conservar la intención authored y se hereda al desprender fragmentos.
+## Internal physical volume fraction. Teardown props are 10 cm voxel art: a sheet-metal cell
+## represents millimeters of material, not a solid cube. This is separate from the XML
+## `density_scale` to preserve authored intent and is inherited by detached fragments.
 var physical_fill_scale := 1.0
-## Identidad de la Shape antes del primer corte. Permite distinguir dos fragmentos del mismo
-## volumen (que requieren contacto exacto para volver a unirse) de dos piezas authored distintas,
-## cuyas transformadas admiten el margen de importación de 12 cm.
+## Shape identity before the first cut. Distinguishes two fragments from the same volume (which
+## require exact contact to reconnect) from separate authored pieces, whose transforms allow the
+## 12 cm import margin.
 var structural_lineage := 0
-## Una estructura estática no necesita masa hasta que cae. Al volverse fragmento, sus voxeles siguen
-## describiendo una envolvente visual de mampostería, perfiles y huecos, no metros cúbicos macizos.
-## Es más densa que un prop de chapa (`0.025`), pero un orden de magnitud más ligera que la
-## integración volumétrica que hacía pesar 105 t a la torre eléctrica de Lee.
+## A static structure needs no mass until it falls. As a fragment, its voxels still describe a
+## visual envelope of masonry, beams, and gaps rather than solid cubic meters. It is denser than a
+## sheet-metal prop (`0.025`), but an order of magnitude lighter than the volumetric integration
+## that made Lee's power tower weigh 105 tonnes.
 const STRUCTURAL_DYNAMIC_FILL_SCALE := 0.10
 var renderer_slot := -1
-## Efecto superficial opcional. Vive en un componente aparte para que la Shape siga siendo volumen,
-## no un contenedor de reglas específicas de vehículos o materiales animados.
+## Optional surface effect. Kept in a separate component so the Shape remains a volume rather than
+## a container for vehicle-specific or animated-material rules.
 var surface_animation: VoxelSurfaceAnimation:
 	get:
 		return _surface_animation
@@ -41,14 +41,15 @@ var surface_animation: VoxelSurfaceAnimation:
 var _surface_animation: VoxelSurfaceAnimation
 var last_damage_native_ms := 0.0
 var last_damage_notify_ms := 0.0
-## Última revisión cuya mutación atravesó este wrapper y emitió `voxels_changed`.
+## Most recent revision whose mutation passed through this wrapper and emitted `voxels_changed`.
 var last_notified_revision := 0
-## Estado por Shape que antes vivía en el VoxelBody3D dueño. Un fragmento cambia de cuerpo varias
-## veces (detach, absorción, retirada) y ese estado no viajaba con él: el dueño nuevo devolvía 0 y
-## la colisión vieja se quedaba en Jolt para siempre. Vive aquí porque describe a la Shape, no al
-## cuerpo que la sostiene ahora mismo.
+## Per-Shape state that used to live on the owning VoxelBody3D. A fragment can change bodies several
+## times (detach, absorption, retirement), and that state did not travel with it: the new owner
+## returned 0 and the old collision stayed in Jolt forever. It lives here because it describes the
+## Shape, not the body currently holding it.
 var collision_revision := 0
-## Conteo cacheado de voxeles de dureza >= umbral de cimiento, válido solo para `foundation_revision`.
+## Cached count of voxels with hardness >= the foundation threshold, valid only for
+## `foundation_revision`.
 var foundation_count := 0
 var foundation_revision := -1
 var _foundation_threshold := -1.0
@@ -138,8 +139,8 @@ func damage_sphere(
 	last_damage_native_ms = (Time.get_ticks_usec() - native_started) / 1000.0
 	var notify_started := Time.get_ticks_usec()
 	if int(result.get("removed", 0)) > 0:
-		# El recuento de cimiento se mantiene O(1) restando lo que el planner acaba de quitar. Sin
-		# esto habria que reescanear el volumen denso entero en cada disparo.
+		# Keep the foundation count O(1) by subtracting what the planner just removed. Otherwise the
+		# entire dense volume would need to be rescanned for every shot.
 		if foundation_revision >= 0 and is_equal_approx(_foundation_threshold, foundation_threshold):
 			foundation_count = maxi(
 				0, foundation_count - int(result.get("removed_foundation", 0))
@@ -153,8 +154,8 @@ func damage_sphere(
 	return result
 
 
-## Cimiento = conserva al menos un voxel de dureza >= umbral. El recuento nativo solo se repite
-## cuando la revisión cacheada quedó obsoleta, asi que un disparo normal sigue siendo O(1).
+## A foundation retains at least one voxel with hardness >= threshold. Recount natively only when
+## the cached revision is stale, keeping a normal shot O(1).
 func foundation_voxel_count(threshold: float) -> int:
 	if data == null or palette == null:
 		return 0
@@ -240,7 +241,7 @@ func mass_properties() -> Dictionary:
 	return properties
 
 
-## Idempotente: un prop authored que ya usa 0,025 no se vuelve a escalar y un fragmento estructural
-## que se retire/reactive tampoco pierde masa en cada transición.
+## Idempotent: an authored prop already using 0.025 is not scaled again, and a structural fragment
+## does not lose mass on each remove/reactivate transition.
 func calibrate_for_dynamic_structure() -> void:
 	physical_fill_scale = minf(physical_fill_scale, STRUCTURAL_DYNAMIC_FILL_SCALE)

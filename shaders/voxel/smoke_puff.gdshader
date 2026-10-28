@@ -2,28 +2,28 @@ shader_type spatial;
 render_mode blend_mix, depth_draw_never, cull_disabled, diffuse_burley, specular_disabled,
 	shadows_disabled;
 
-// Bocanada de humo al estilo Teardown, que es el referente del juego y no dibuja el humo con cubos.
-// Allí cada partícula es una pirámide hueca encarada a la cámara con las normales interpoladas: no
-// se ve la geometría, se ve una bola sombreada. Aquí se hace igual con un solo quad: la normal
-// esférica se calcula en el fragment, más barato y con el mismo resultado.
+// Teardown-style smoke puff; the game uses it as a reference and does not render smoke as cubes.
+// There, each particle is a hollow pyramid facing the camera with interpolated normals: the
+// geometry is hidden and only a shaded sphere is visible. This does the same with a single quad,
+// calculating the spherical normal in the fragment shader for less cost and the same result.
 //
-// La textura es fBm con dominio deformado -f(p + f(p)), que es lo que convierte un ruido plano en
-// algo veteado y arremolinado- usada para tres cosas a la vez: romper la silueta, variar la densidad
-// por dentro (un puff de densidad uniforme parece una pegatina) y abollar la normal, que es lo que
-// le da el aspecto de coliflor que tiene el humo de verdad.
+// The texture is domain-warped fBm—f(p + f(p)), which turns flat noise into streaks and swirls.
+// It serves three purposes at once: breaking up the silhouette, varying internal density (a puff
+// with uniform density looks like a sticker), and perturbing the normal to give real smoke its
+// characteristic cauliflower-like appearance.
 //
-// Además se erosiona con la edad: en vez de bajar la opacidad entera, sube el umbral y solo aguantan
-// los núcleos más densos. Así la bocanada se deshila en jirones en lugar de desaparecer entera.
+// It also erodes with age: instead of lowering the overall opacity, raise the threshold so only
+// the densest cores remain. The puff unravels into wisps instead of disappearing all at once.
 
 uniform float emissive = 0.0;
-// Cuánto se afila el borde. Alto = el humo se apaga mucho antes de llegar a la silueta, que es lo
-// que lo hace blando. El fuego lo quiere bajo: una llama sí tiene borde.
+// How strongly to soften the edge. Higher values fade smoke well before the silhouette, making it
+// look soft. Fire uses a lower value because flames have defined edges.
 uniform float edge_softness = 1.8;
 uniform float noise_scale = 2.2;
 uniform float erosion = 0.75;
 uniform float bump_strength = 1.6;
-// Distancia en la que el puff se apaga al clavarse en la geometría. Sin esto, la cortina de polvo
-// corta el suelo con una línea recta y canta más que ninguna otra cosa.
+// Distance over which the puff fades into geometry. Without this, the dust curtain is cut off by a
+// straight line at the ground and becomes very noticeable.
 uniform float soft_distance = 1.2;
 uniform sampler2D depth_texture : hint_depth_texture, filter_linear;
 
@@ -57,29 +57,29 @@ float fbm(vec2 x, float z) {
 
 
 void vertex() {
-	// Billboard conservando la escala por eje: el tamaño de cada puff viene en la MODEL_MATRIX,
-	// que es como `emit_particle` transporta la escala por partícula.
+	// Billboard while preserving per-axis scale: each puff's size comes from MODEL_MATRIX, which is
+	// how `emit_particle` carries per-particle scale.
 	MODELVIEW_MATRIX = VIEW_MATRIX * mat4(
 		normalize(INV_VIEW_MATRIX[0]) * length(MODEL_MATRIX[0].xyz),
 		normalize(INV_VIEW_MATRIX[1]) * length(MODEL_MATRIX[1].xyz),
 		normalize(INV_VIEW_MATRIX[2]) * length(MODEL_MATRIX[2].xyz),
 		MODEL_MATRIX[3]
 	);
-	// Semilla por partícula: su posición de nacimiento. Sin ella todos los puffs comparten silueta y
-	// la nube se ve estampada.
+	// Per-particle seed from its birth position. Without it, every puff shares a silhouette and the
+	// cloud looks stamped out.
 	seed = hash13(floor(MODEL_MATRIX[3].xyz * 7.0)) * 40.0;
-	// `CUSTOM.y` es la fracción de vida que escribe el material de proceso.
+	// `CUSTOM.y` is the lifetime fraction written by the process material.
 	age = INSTANCE_CUSTOM.y;
 }
 
 
 void fragment() {
 	vec2 disc = UV * 2.0 - 1.0;
-	// Cada puff mira su ruido con su propio giro: sin esto se repite el mismo dibujo por toda la nube.
+	// Rotate each puff's noise independently; otherwise the same pattern repeats across the cloud.
 	float turn = seed * 1.7;
 	vec2 sample_uv = mat2(vec2(cos(turn), -sin(turn)), vec2(sin(turn), cos(turn))) * disc;
 
-	// Dominio deformado: el ruido se muestrea en coordenadas que el propio ruido desplaza.
+	// Domain warping: sample noise at coordinates displaced by the noise itself.
 	vec2 warp = vec2(
 		value_noise(sample_uv * 1.6 + 11.0, seed), value_noise(sample_uv * 1.6 - 7.0, seed)
 	) - 0.5;
@@ -89,15 +89,15 @@ void fragment() {
 	if (radius > 1.0) {
 		discard;
 	}
-	// Grosor de la esfera en este píxel: en un gas la opacidad es literalmente cuánta materia
-	// atraviesa el rayo.
+	// Sphere thickness at this pixel: in a gas, opacity literally represents how much matter the
+	// ray passes through.
 	float thickness = pow(1.0 - radius * radius, 0.5 * edge_softness);
-	// Erosión: el umbral sube con la edad y solo sobreviven los grumos densos.
+	// Erosion: the threshold rises with age, leaving only dense clumps.
 	float density = thickness * (0.45 + billow * 0.95);
 	density *= smoothstep(age * erosion, age * erosion + 0.35, density + 0.15);
 
-	// Abolladura de la normal con el gradiente del ruido. Una octava basta: el relieve del humo es
-	// grueso, y de paso son tres muestras y no nueve.
+	// Perturb the normal with the noise gradient. One octave is enough: smoke relief is broad, and
+	// this takes three samples instead of nine.
 	float step_uv = 0.06;
 	vec2 gradient = vec2(
 		value_noise((sample_uv + vec2(step_uv, 0.0)) * noise_scale, seed) - billow,
@@ -105,8 +105,8 @@ void fragment() {
 	) / step_uv;
 	vec3 normal = normalize(vec3(disc.x, -disc.y, sqrt(max(1.0 - radius * radius, 0.0)))
 		+ vec3(gradient.x, -gradient.y, 0.0) * bump_strength);
-	// El truco de Teardown: uno de cada dos píxeles se sombrea por la cara de atrás de la esfera.
-	// Con eso la luz parece atravesar la bocanada en vez de rebotar en una cáscara opaca.
+	// Teardown's trick: shade every other pixel using the back face of the sphere. This makes light
+	// appear to pass through the puff instead of bouncing off an opaque shell.
 	if (mod(FRAGCOORD.x + FRAGCOORD.y, 2.0) < 1.0) {
 		normal.z = -normal.z;
 	}
@@ -116,7 +116,7 @@ void fragment() {
 	EMISSION = COLOR.rgb * emissive;
 	float alpha = COLOR.a * density;
 
-	// Soft particles: se desvanece contra lo que tenga detrás en vez de cortarlo.
+	// Soft particles: fade into whatever is behind instead of cutting it off.
 	float scene_depth = texture(depth_texture, SCREEN_UV).x;
 	vec4 scene_view = INV_PROJECTION_MATRIX * vec4(SCREEN_UV * 2.0 - 1.0, scene_depth, 1.0);
 	float scene_distance = -scene_view.z / scene_view.w;

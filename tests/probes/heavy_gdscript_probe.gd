@@ -1,14 +1,14 @@
 extends SceneTree
-## Las dos rutas de carga que quedaban repartidas entre GDScript y C++: las caras de colisión
-## estática y la subida de bricks al atlas. Mide las dos y comprueba que el lote de bricks entrega
-## exactamente lo mismo que la subida de uno en uno que sustituye.
+## The two remaining load paths split between GDScript and C++: static collision faces and brick
+## uploads to the atlas. Measure both and verify that batch brick uploads produce exactly the same
+## result as the individual uploads they replace.
 
 var XML := VoxelProjectPaths.teardown_map_path()
 const BRICK := 8
 const BRICK_CELLS := BRICK * BRICK * BRICK
-## Malla de colisión del mapa entero medida con el barrido completo, antes de recortarlo a las
-## macroceldas ocupadas. Son 72 M de triángulos: la referencia va aquí porque no hay forma barata de
-## recalcularla desde GDScript, y sin ella el recorte pasaría sin que nadie note un agujero.
+## Collision mesh for the entire map, measured with the full sweep before cropping it to occupied
+## macrocells. It contains 72 M triangles; keep the reference here because recalculating it cheaply
+## from GDScript is impossible, and without it cropping could introduce holes unnoticed.
 const REFERENCE_VERTICES := 216533046
 const REFERENCE_CHECKSUM := 2452818599.3419
 
@@ -25,14 +25,14 @@ func _initialize() -> void:
 					shapes.append(shape)
 	print("shapes=%d" % shapes.size())
 
-	print("--- caras de colisión ---")
+	print("--- collision faces ---")
 	var blocks_usec := 0
 	var faces_usec := 0
 	var block_count := 0
-	# Huella de la malla entregada a Jolt. Recortar el barrido a las macroceldas ocupadas no puede
-	# cambiar ni un triángulo — las celdas que se saltan son aire — así que esto tiene que salir
-	# idéntico antes y después, y es lo único que separa un recorte correcto de un suelo con
-	# agujeros por los que se cae el jugador.
+	# Fingerprint of the mesh delivered to Jolt. Cropping the sweep to occupied macrocells cannot
+	# change a single triangle—the skipped cells are air—so the result must be identical before and
+	# after. This is the only check distinguishing correct cropping from a floor with holes the
+	# player can fall through.
 	var vertices := 0
 	var checksum := 0.0
 	var masked_vertices := 0
@@ -62,19 +62,18 @@ func _initialize() -> void:
 		block_count, blocks_usec / 1000.0, faces_usec / 1000.0
 	])
 	print("HUELLA vertices=%d checksum=%.4f" % [vertices, checksum])
-	assert(vertices == REFERENCE_VERTICES, "el recorte por macroceldas cambió la malla de colisión")
-	assert(is_equal_approx(checksum, REFERENCE_CHECKSUM), "las caras cambiaron de sitio")
-	print("CON MASCARA vertices=%d (-%.1f %%)  caras=%.0f ms  bloques que desaparecen=%d" % [
+	assert(vertices == REFERENCE_VERTICES, "macrocell cropping changed the collision mesh")
+	assert(is_equal_approx(checksum, REFERENCE_CHECKSUM), "faces changed positions")
+	print("WITH MASK vertices=%d (-%.1f %%)  faces=%.0f ms  blocks removed=%d" % [
 		masked_vertices, 100.0 * (vertices - masked_vertices) / float(vertices),
 		masked_usec / 1000.0, empty_blocks
 	])
-	assert(masked_vertices > 0 and masked_vertices < vertices, "la máscara no quitó nada")
-	# 29,7 s medidos al empezar. Lo que queda es el barrido, no emitir triángulos: con la máscara
-	# salen un 74 % menos de vértices y cuesta casi lo mismo. La ganancia de la máscara está en lo
-	# que viene después — Jolt construye 18,7 M de triángulos en vez de 72 M — no aquí.
-	assert(faces_usec / 1000.0 < 25000.0, "las caras siguen costando demasiado")
-
-	print("--- subida de bricks ---")
+	assert(masked_vertices > 0 and masked_vertices < vertices, "the mask removed nothing")
+	# 29.7 s measured at startup. The remaining cost is the sweep, not emitting triangles: the mask
+	# produces 74% fewer vertices at nearly the same cost. The mask's benefit is in what follows—
+	# Jolt builds 18.7 M triangles instead of 72 M—not here.
+	assert(faces_usec / 1000.0 < 25000.0, "face generation is still too slow")
+	print("--- brick upload ---")
 	var pool := VoxelBrickPool.new()
 	pool.configure(Vector3i(64, 64, 64))
 	var batched_usec := 0
@@ -93,8 +92,8 @@ func _initialize() -> void:
 		uploads += batches.size()
 		bricks += count
 		_verify(pool, shape, table, base, batches)
-		# La ruta que sustituye, para comparar: una vuelta por macrocelda y un brick suelto por cada
-		# una ocupada. El coste real estaba en la GPU, no aquí, pero el reparto se ve igual.
+		# The path being replaced, for comparison: one pass per macrocell and one separate brick for
+		# each occupied region. The actual cost was on the GPU, not here, but the distribution is the same.
 		var macro_dimensions := shape.data.get_macro_dimensions()
 		started = Time.get_ticks_usec()
 		for index in macro_dimensions.x * macro_dimensions.y * macro_dimensions.z:
@@ -108,19 +107,19 @@ func _initialize() -> void:
 			))
 			pool.get_slot_origin(slot)
 		single_usec += Time.get_ticks_usec() - started
-	print("bricks=%d  subidas a la GPU: %d en tandas frente a %d sueltas" % [
+	print("bricks=%d  GPU uploads: %d batched vs %d individual" % [
 		bricks, uploads, bricks
 	])
-	print("empaquetar %.0f ms frente a %.0f ms del bucle por macrocelda" % [
+	print("packing %.0f ms vs %.0f ms for the per-macrocell loop" % [
 		batched_usec / 1000.0, single_usec / 1000.0
 	])
 	print("OK")
 	quit()
 
 
-## Cada brick de la tanda tiene que salir byte a byte igual que el que devolvía `refresh_brick`, y
-## en el mismo sitio de la textura. Si esto se desalinea, el mapa se dibuja con la textura de otra
-## Shape y no hay error en ningún sitio.
+## Each brick in the batch must be byte-for-byte identical to what `refresh_brick` returned, and in
+## the same texture location. If they become misaligned, the map is rendered with another Shape
+## without producing any errors.
 func _verify(
 	pool: VoxelBrickPool, shape: VoxelShape3D, table: PackedInt32Array, base: int, batches: Array
 ) -> void:
@@ -143,15 +142,15 @@ func _verify(
 			var slot := base + cursor
 			cursor += 1
 			var copy: Dictionary = copies[i]
-			assert(copy.source == Vector3i(0, 0, i * BRICK), "la fuente del brick %d no cuadra" % i)
-			assert(copy.destination == pool.get_slot_origin(slot), "destino del slot %d" % slot)
+			assert(copy.source == Vector3i(0, 0, i * BRICK), "brick %d source does not match" % i)
+			assert(copy.destination == pool.get_slot_origin(slot), "slot %d destination" % slot)
 			assert(copy.size == Vector3i(BRICK, BRICK, BRICK))
 			var expected := pool.refresh_brick(shape.data, slot, macro_of[slot])
 			assert(
 				bytes.slice(i * BRICK_CELLS, (i + 1) * BRICK_CELLS) == expected,
-				"el brick del slot %d no coincide con refresh_brick" % slot
+				"brick in slot %d does not match refresh_brick" % slot
 			)
-	assert(cursor == pool.get_used() - base, "faltan bricks en las tandas")
+	assert(cursor == pool.get_used() - base, "bricks are missing from the batches")
 
 
 func _blocks(shape: VoxelShape3D, block: int) -> Array:

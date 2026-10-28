@@ -1,6 +1,6 @@
 extends SceneTree
-## Cuantos `<body dynamic="true">` de Teardown sobreviven al recorte y que cuestan: es lo que decide
-## si pueden estar vivos todos a la vez o hay que seguir congelandolos.
+## How many Teardown `<body dynamic="true">` elements survive cropping and what they cost: this
+## determines whether all can be active at once or must continue to be frozen.
 var MAP := VoxelProjectPaths.teardown_map_path()
 
 
@@ -15,13 +15,13 @@ func _run() -> void:
 	root.add_child(world)
 	var report: Dictionary = TeardownMapImporter.import_map(
 		world, MAP, Vector3.INF, 1.0e9, Vector3.ZERO, true)
-	print("cuerpos importados %d   joints %d (descartados %d)" % [
+	print("imported bodies %d   joints %d (discarded %d)" % [
 		report.bodies, report.joints, report.skipped_joints])
-	print("XML dynamic=true %d   dinámicos importados %d   density overrides %d" % [
+	print("XML dynamic=true %d   imported dynamic %d   density overrides %d" % [
 		report.authored_dynamic_bodies, report.imported_dynamic_bodies,
 		report.density_overrides])
 	assert(int(report.authored_dynamic_bodies) == 632,
-		"el recorrido dejó de reconocer las 632 marcas dynamic=true de Lee")
+		"the traversal no longer recognizes Lee's 632 dynamic=true markers")
 	var dynamic := 0
 	var boxes := 0
 	var voxels := 0
@@ -47,21 +47,21 @@ func _run() -> void:
 						"vox:palette25.vox:shape527", "vox:palette197.vox:shape2264",
 						"vox:palette126.vox:shape1953"]:
 					reference_masses[source] = rigid.mass
-	print("props dinamicos %d   cajas de colision %d   voxeles %d" % [dynamic, boxes, voxels])
+	print("dynamic props %d   collision boxes %d   voxels %d" % [dynamic, boxes, voxels])
 	assert(dynamic == int(report.imported_dynamic_bodies),
-		"el reporte no coincide con los Bodies dinámicos registrados")
+		"the report does not match the registered dynamic Bodies")
 	masses.sort()
 	var liftable := masses.filter(func(value: float) -> bool: return value <= 2200.0 / 9.8).size()
 	var p50 := masses[masses.size() / 2]
 	var p90 := masses[int(masses.size() * 0.90)]
 	var p99 := masses[int(masses.size() * 0.99)]
-	print("masas kg: P50 %.1f  P90 %.1f  P99 %.1f  max %.1f  levantables %d/%d" % [
+	print("masses kg: P50 %.1f  P90 %.1f  P99 %.1f  max %.1f  liftable %d/%d" % [
 		p50, p90, p99, masses.back(), liftable, masses.size()])
 	assert(p50 < 30.0 and p90 < 300.0 and liftable >= 550,
-		"la población de props volvió a masas macizas exageradas")
+		"prop masses have reverted to exaggerated solid masses")
 	mass_records.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		return float(a.mass) > float(b.mass))
-	print("12 cuerpos más pesados (deben ser vehículos/maquinaria, no props pequeños):")
+	print("12 heaviest bodies (should be vehicles/machinery, not small props):")
 	for index in mini(12, mass_records.size()):
 		var record := mass_records[index]
 		print("  %.1f kg  vox=%d  %s" % [
@@ -76,8 +76,8 @@ func _run() -> void:
 	for source: String in expected:
 		assert(reference_masses.has(source) and absf(
 			float(reference_masses[source]) - float(expected[source])
-		) < float(expected[source]) * 0.02, "masa incoherente para %s" % source)
-	print("referencias de masa ", reference_masses)
+		) < float(expected[source]) * 0.02, "inconsistent mass for %s" % source)
+	print("reference masses ", reference_masses)
 	print("presupuesto: max_active_boxes %d   target_awake %d" % [
 		world.physics_budget.max_active_boxes, world.physics_budget.target_awake_bodies])
 	quit()

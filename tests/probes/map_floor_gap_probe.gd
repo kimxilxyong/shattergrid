@@ -1,11 +1,11 @@
 extends SceneTree
-## Los fallos que quedaron tras arreglar el devanado: ruido de la sonda o segundo fallo?
+## Failures remaining after fixing winding: probe noise or a second bug?
 ##
-## Para cada superficie pisable que el rayo no encuentra, se abre la ConcavePolygonShape3D del
-## bloque que deberia cubrirla y se mira si hay algun triangulo sobre esa columna. Tres desenlaces:
-##  - hay triangulo a la altura correcta -> el fallo es de la sonda (algo tapa el rayo).
-##  - hay triangulos en el bloque pero ninguno en esa columna -> faltan caras: segundo fallo.
-##  - el bloque no existe -> no se reconstruyo: otro fallo distinto.
+## For each walkable surface the ray misses, inspect the ConcavePolygonShape3D block that should
+## cover it and check for triangles above that column. Three possible outcomes:
+##  - a triangle exists at the correct height -> the probe failed (something blocked the ray).
+##  - triangles exist in the block but not in that column -> faces are missing: a second bug.
+##  - the block does not exist -> it was not rebuilt: a different bug.
 
 var MAP := VoxelProjectPaths.teardown_map_path()
 
@@ -23,8 +23,8 @@ func _run() -> void:
 
 	var space := root.world_3d.direct_space_state
 	var veredictos := {}
-	var muestras := {"alineada": 0, "rotada": 0}
-	var fallos := {"alineada": 0, "rotada": 0}
+	var muestras := {"aligned": 0, "rotated": 0}
+	var fallos := {"aligned": 0, "rotated": 0}
 	var ejemplos: Array[String] = []
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7
@@ -49,9 +49,9 @@ func _run() -> void:
 				if index == 0 or shape.data.get_cell(x, y + 1, z) != 0:
 					continue
 				encontrados += 1
-				# El +Y del voxel solo es "arriba" si la Shape no viene girada del XML.
-				var clase := "alineada" if to_world.basis.y.normalized().dot(Vector3.UP) > 0.999 \
-					else "rotada"
+				# A voxel's +Y is only "up" if the Shape is not rotated in the XML.
+				var clase := "aligned" if to_world.basis.y.normalized().dot(Vector3.UP) > 0.999 \
+					else "rotated"
 				muestras[clase] = int(muestras[clase]) + 1
 				var material := TeardownPalette.material_name(index)
 				if material == "foliage":
@@ -68,20 +68,20 @@ func _run() -> void:
 				fallos[clase] = int(fallos[clase]) + 1
 				var veredicto := _diagnosticar(body as VoxelBody3D, shape, Vector3i(x, y, z), local)
 				veredictos[veredicto] = int(veredictos.get(veredicto, 0)) + 1
-				if ejemplos.size() < 12 and veredicto != "la sonda: hay triangulo en su sitio":
-					ejemplos.append("  %-46s %s vox=%s dims=%s bloque=%d mat=%s"
+				if ejemplos.size() < 12 and veredicto != "probe: triangle at the expected location":
+					ejemplos.append("  %-46s %s vox=%s dims=%s block=%d material=%s"
 						% [veredicto, body.name, Vector3i(x, y, z), cells,
 						VoxelBody3D.collision_block_for(shape), material])
 
 	for clase in muestras:
 		var total: int = muestras[clase]
 		if total > 0:
-			print("  Shapes %-10s %d/%d fallan (%.1f %%)"
+			print("  Shapes %-10s %d/%d fail (%.1f %%)"
 				% [clase, fallos[clase], total, 100.0 * float(fallos[clase]) / float(total)])
-	print("\nveredicto de los fallos que quedaban (sin follaje)")
+	print("\nverdict for remaining failures (excluding foliage)")
 	for veredicto in veredictos:
 		print("  %-46s %d" % [veredicto, veredictos[veredicto]])
-	print("\nejemplos")
+	print("\nexamples")
 	for linea in ejemplos:
 		print(linea)
 	quit()
@@ -95,10 +95,10 @@ func _diagnosticar(
 		(voxel.x / 8) / block, (voxel.y / 8) / block, (voxel.z / 8) / block]
 	var collision: CollisionShape3D = body._macro_collisions.get(key)
 	if collision == null:
-		return "sin bloque de colision"
+		return "no collision block"
 	var faces: PackedVector3Array = (collision.shape as ConcavePolygonShape3D).get_faces()
 	if faces.is_empty():
-		return "bloque vacio"
+		return "empty block"
 	var media := shape.voxel_size * 0.5
 	var en_columna := 0
 	var a_su_altura := 0
@@ -115,7 +115,7 @@ func _diagnosticar(
 		if absf(low.y - local.y) < media and absf(high.y - local.y) < media:
 			a_su_altura += 1
 	if a_su_altura > 0:
-		return "la sonda: hay triangulo en su sitio"
+		return "probe: triangle at the expected location"
 	if en_columna > 0:
-		return "faltan caras: hay geometria en la columna, no a esa altura"
-	return "faltan caras: no hay nada en esa columna"
+		return "missing faces: geometry exists in the column, but not at this height"
+	return "missing faces: no geometry in this column"

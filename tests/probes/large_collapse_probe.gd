@@ -1,6 +1,6 @@
 extends SceneTree
-## Perfil de la torre eléctrica real convertida en un único Body. Aísla el coste de Jolt: no crea
-## renderer, pero conserva toda la colisión estática de Lee y deja que el compound golpee el mapa.
+## Profile the real power tower converted into a single Body. Isolate Jolt's cost: do not create a
+## renderer, but retain all of Lee's static collision and let the compound hit the map.
 
 var MAP := VoxelProjectPaths.teardown_map_path()
 const MAST_PROBE := Vector3(-3.9, 14.7, 70.9)
@@ -31,8 +31,8 @@ func _run() -> void:
 	var world := VoxelWorld3D.new()
 	world.show_diagnostics = false
 	world.impact_particles_enabled = false
-	# Este probe aísla solver/compound. La destrucción mutua al tocar el mapa tiene su regresión en
-	# `voxel_impact_damage_selftest`; dejarla activa cambiaría masa y composición durante la medida.
+	# This probe isolates the solver/compound. Mutual destruction on map contact is covered by
+	# `voxel_impact_damage_selftest`; enabling it would change mass and composition during the measurement.
 	world.physics_impact_damage_enabled = false
 	world.physics_budget = VoxelPhysicsBudget.new()
 	world.physics_budget.max_boxes_per_body = requested_boxes
@@ -49,8 +49,8 @@ func _run() -> void:
 	var host := world._merge_dropped_chain([mast, head] as Array[VoxelBody3D])
 	var rigid := host.get_physics_body() as RigidBody3D
 	assert(rigid != null)
-	# Espera la salida del StaticBody viejo y limpia del monitor el frame de importación. Así el
-	# perfil mide el colapso, no la construcción completa de Lee.
+	# Wait for the old StaticBody to leave and clear the import frame from the monitor. This way, the
+	# profile measures the collapse, not the full construction of Lee.
 	for _frame in 12:
 		await process_frame
 		await physics_frame
@@ -61,8 +61,8 @@ func _run() -> void:
 	for _frame in 60:
 		await process_frame
 		await physics_frame
-	# Velocidad inicial reproducible: fuerza impacto y vuelco sin depender de dónde quedó el último
-	# voxel de la base durante una sesión manual.
+	# Reproducible initial velocity: force an impact and tip-over without depending on where the last
+	# foundation voxel was left during a manual session.
 	rigid.position.y += 2.0
 	var raised_start_y := head_shape.world_bounds().get_center().y
 	rigid.freeze = false

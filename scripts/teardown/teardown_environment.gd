@@ -1,7 +1,7 @@
 class_name TeardownEnvironment
 extends RefCounted
-## Traduce el `<environment>` de Teardown a la iluminación de Godot y conserva el resultado que
-## consume el renderer voxel. No depende de la escena principal ni de rutas `$...`.
+## Translates Teardown's `<environment>` into Godot lighting and preserves the result consumed by
+## the voxel renderer. It does not depend on the main scene or `$...` paths.
 
 const AMBIENT_LEVEL := 0.12
 const DAYLIGHT_AMBIENT_LEVEL := 0.30
@@ -119,7 +119,7 @@ func _aim_sun_at_brightest(
 		var ambient := night_ambient_pair(source_sky)
 		ambient_sky = ambient.sky
 		ambient_ground = ambient.ground
-	print("[%s] sol a %.1f° de elevación, azimut %.1f°" % [
+	print("[%s] sun elevation %.1f°, azimuth %.1f°" % [
 		notice,
 		rad_to_deg(asin(direction.y)),
 		rad_to_deg(atan2(direction.x, -direction.z)),

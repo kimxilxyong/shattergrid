@@ -110,9 +110,10 @@ void VoxelCollisionHandoffQueue::remove_body(Object *p_body) {
     for (int index = static_cast<int>(tickets.size()) - 1; index >= 0; --index) {
         Ticket &ticket = tickets[static_cast<size_t>(index)];
         if (ticket.fragment_id == id) {
-            // El ticket es lo unico que iba a limpiar `collision_handoff_pending`. Se cancela sin
-            // reactivar capas: `remove_body` solo se usa al retirar el nodo y completar el handoff
-            // volveria a habilitar su colision fantasma hasta el queue_free de fin de frame.
+            // This ticket was the only thing that would clear `collision_handoff_pending`. Cancel it
+            // without re-enabling layers: `remove_body` is used only when retiring the node, and
+            // completing the handoff would re-enable its ghost collision until end-of-frame
+            // `queue_free`.
             if (p_body->has_method("cancel_collision_handoff")) {
                 p_body->call("cancel_collision_handoff");
             }
@@ -133,7 +134,7 @@ Object *VoxelCollisionHandoffQueue::select_pending_source() const {
     for (const Ticket &ticket : tickets) {
         Object *source = ObjectDB::get_instance(ticket.source_body_id);
         Object *shape = ObjectDB::get_instance(ticket.source_shape_id);
-        // Sigue priorizando la reconstruccion completa aunque el handoff ya pueda liberarse.
+        // Continue prioritizing the full rebuild even if the handoff can now be released.
         if (source_rebuild_pending(source, shape, ticket.source_revision)) {
             return source;
         }

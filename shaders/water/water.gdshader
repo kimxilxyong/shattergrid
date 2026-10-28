@@ -1,10 +1,10 @@
 shader_type spatial;
 render_mode unshaded, blend_mix, depth_draw_never, cull_disabled;
 
-// El agua se dibuja al final, igual que en Teardown: primero lee el color y la profundidad de la
-// escena opaca, después refracta ese color y busca una reflexión corta en el depth buffer. Ocho
-// pasos son deliberados; a la escala interna 0,4 del proyecto cuestan mucho menos que una cámara
-// de reflexión y no vuelven a dibujar los 79 M de voxeles de Lee.
+// Water is drawn last, as in Teardown: first read the opaque scene's color and depth, then refract
+// that color and search for a short reflection in the depth buffer. Eight steps are deliberate:
+// at the project's internal 0.4 scale, they cost much less than a reflection camera and do not
+// redraw Lee's 79 million voxels.
 uniform sampler2D screen_texture : hint_screen_texture, repeat_disable, filter_linear_mipmap;
 uniform sampler2D depth_texture : hint_depth_texture, repeat_disable, filter_nearest;
 uniform sampler2D wave_normal : hint_normal, repeat_enable, filter_linear_mipmap_anisotropic;
@@ -46,7 +46,8 @@ vec3 screen_space_reflection(
 	vec2 hit_uv = origin_uv;
 	confidence = 0.0;
 	for (int step = 0; step < 8; step++) {
-		// Paso creciente: buena precisión cerca del agua y alcance de unos 12 m sin 32-64 lecturas.
+		// Increasing step size gives good precision near the water and reaches about 12 m without
+		// requiring 32–64 samples.
 		float stride = 0.35 + float(step) * 0.32;
 		sample_position += direction * stride;
 		if (sample_position.z >= -0.03) {
@@ -59,8 +60,8 @@ vec3 screen_space_reflection(
 		float scene_distance = view_distance_at(uv, inverse_projection);
 		float ray_distance = -sample_position.z;
 		float separation = scene_distance - ray_distance;
-		// El rayo acaba de alcanzar la primera superficie opaca. La tolerancia crece con el paso
-		// para no perder paredes finas cuando el rayo está lejos.
+		// The ray has just reached the first opaque surface. Tolerance increases with the step size
+		// so thin walls are not missed at greater distances.
 		if (separation <= 0.08 + stride * 0.18 && separation > -1.1) {
 			hit_uv = uv;
 			float edge = min(min(uv.x, uv.y), min(1.0 - uv.x, 1.0 - uv.y));
@@ -73,8 +74,8 @@ vec3 screen_space_reflection(
 
 
 void fragment() {
-	// Dos octavas oblicuas, sin la rotación exacta de 90° que producía cruces/cuadrículas visibles.
-	// La normal ya lleva ocho frecuencias domain-warped, así que seguimos en dos lecturas totales.
+	// Two oblique octaves avoid the exact 90-degree rotation that produced visible crosses/grids.
+	// The normal already contains eight domain-warped frequencies, so this still takes two samples.
 	vec2 flow_a = UV + vec2(0.0137, 0.0081) * TIME;
 	mat2 oblique = mat2(vec2(0.798636, 0.601815), vec2(-0.601815, 0.798636));
 	vec2 flow_b = oblique * UV * 1.91 + vec2(-0.0084, 0.0129) * TIME + vec2(0.37, 0.19);
@@ -96,7 +97,7 @@ void fragment() {
 		SCREEN_UV + view_normal.xy * refraction_strength * min(thickness, 1.5),
 		vec2(0.002), vec2(0.998)
 	);
-	// No arrastrar sobre el agua un objeto que en realidad está delante de ella.
+	// Do not pull an object across the water when it is actually in front of it.
 	if (view_distance_at(refracted_uv, INV_PROJECTION_MATRIX) <= water_distance + 0.015) {
 		refracted_uv = SCREEN_UV;
 	}
@@ -106,8 +107,8 @@ void fragment() {
 	vec3 deep_color = COLOR.rgb;
 	vec3 refracted = mix(scene_color, deep_color, clamp(absorption * 0.88, 0.0, 0.94));
 
-	// El cielo de Lee es deliberadamente sepia. Una absorción espectral leve conserva ese reflejo
-	// pero evita que el agua entera parezca barro cuando el SSR no encuentra geometría.
+	// Lee's sky is deliberately sepia. Mild spectral absorption preserves that reflection while
+	// preventing all the water from looking muddy when SSR finds no geometry.
 	vec3 fallback_reflection = mix(
 		sky_reflection_color, deep_color * 2.0 + vec3(0.015, 0.05, 0.055), 0.20
 	);
@@ -127,18 +128,18 @@ void fragment() {
 	reflected += sun_color * sun_glint * 1.45;
 
 	vec3 water_color = mix(refracted, reflected, clamp(fresnel * reflection_strength, 0.0, 0.96));
-	// Una transmisión azul-verde muy leve mantiene el agua limpia en ángulos frontales sin borrar
-	// el color oscuro authored de los estanques ni lavar la reflexión a ras de superficie.
+	// A subtle blue-green transmission keeps the water clear at head-on angles without removing the
+	// authored dark color of the ponds or washing out the reflection at the surface.
 	water_color += vec3(0.0, 0.016, 0.019) * (1.0 - fresnel) * (0.25 + absorption * 0.75);
-	// Espuma de orilla a partir de la profundidad ya leída. El alpha de la normal aporta ruptura
-	// sin otra textura; no hay espuma sobre el cielo ni sobre fondos a más de 45 cm.
+	// Shoreline foam from the depth already sampled. The normal's alpha adds breakup without another
+	// texture; foam appears neither over the sky nor over backgrounds deeper than 45 cm.
 	float foam_noise = mix(wave_a.a, wave_b.a, 0.41);
 	float foam = (1.0 - smoothstep(0.025, 0.58, thickness))
 		* smoothstep(0.43, 0.76, foam_noise + wave_slope.x * 0.08);
 	water_color = mix(water_color, vec3(0.72, 0.84, 0.83), foam * 0.62);
 
 	ALBEDO = water_color;
-	// ALPHA hace que Godot lo ponga después de la escena opaca; el color ya contiene el fondo
-	// refractado, por eso la salida es uno y no se mezcla por segunda vez.
+	// ALPHA makes Godot draw this after the opaque scene. The color already contains the refracted
+	// background, so output one rather than blending it a second time.
 	ALPHA = 1.0;
 }

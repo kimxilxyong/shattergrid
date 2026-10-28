@@ -10,15 +10,15 @@
 
 namespace godot {
 
-/// Almacén de bricks de 8x8x8 para el atlas de voxeles.
+/// Store of 8x8x8 bricks for the voxel atlas.
 ///
-/// El atlas denso reservaba el volumen entero de cada Shape: en el mapa de Teardown son 453 M de
-/// celdas para 79 M de voxeles llenos, un 17 % de relleno, y no cabía en la GPU. Aquí solo se
-/// reserva una macrocelda cuando tiene algo dentro, y el shader llega a ella por una tabla
-/// `macrocelda -> slot`. El resto del aire deja de ocupar VRAM.
+/// The dense atlas reserved the full volume of every Shape: on the Teardown map, that is 453 M
+/// cells for 79 M filled voxels, only 17% occupancy, and too much for the GPU. Here, a macrocell
+/// is reserved only when it contains something, and the shader accesses it through a
+/// `macrocell -> slot` table. Empty space no longer consumes VRAM.
 ///
-/// El buffer vive en C++ a propósito: los `PackedByteArray` de GDScript son copy-on-write, así que
-/// pasar un pool de 150 MB a una función para que escriba dentro lo copiaría entero en cada Shape.
+/// The buffer deliberately lives in C++: GDScript `PackedByteArray`s are copy-on-write, so passing
+/// a 150 MB pool to a function to write into it would copy the whole buffer for every Shape.
 class VoxelBrickPool : public RefCounted {
     GDCLASS(VoxelBrickPool, RefCounted)
 
@@ -41,22 +41,22 @@ public:
     void reset();
 
     Vector3i get_grid() const;
-    /// Tamaño de la textura 3D, en texeles.
+    /// Dimensions of the 3D texture, in texels.
     Vector3i get_dimensions() const;
     int get_capacity() const;
     int get_used() const;
     PackedByteArray get_bytes() const;
     Vector3i get_slot_origin(int p_slot) const;
 
-    /// Reserva un brick por cada macrocelda ocupada de la Shape y devuelve la tabla
-    /// `índice de macrocelda -> slot` (-1 donde no hay nada). Vacía si el pool se ha llenado.
+    /// Reserves a brick for each occupied macrocell in the Shape and returns the
+    /// `macrocell index -> slot` table (-1 where there is no data). Empty if the pool is full.
     PackedInt32Array append_shape(const Ref<VoxelShapeData> &p_data);
 
-    /// Reescribe un brick tras un impacto y devuelve sus 512 bytes ya empaquetados para subirlos.
+    /// Rewrites a brick after an impact and returns its 512 bytes packed for upload.
     PackedByteArray refresh_brick(const Ref<VoxelShapeData> &p_data, int p_slot, const Vector3i &p_macro);
 
-    /// Empaqueta los bricks `[p_base, p_base + p_count)` — los de una Shape recién añadida, que van
-    /// seguidos — en tandas listas para `VoxelAtlas3D.update_compact_regions`.
+    /// Packs the bricks `[p_base, p_base + p_count)`—those of a newly added Shape, which are
+    /// contiguous—into batches ready for `VoxelAtlas3D.update_compact_regions`.
     Array extract_uploads(int p_base, int p_count) const;
 };
 

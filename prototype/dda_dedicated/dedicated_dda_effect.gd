@@ -10,9 +10,9 @@ const SHADER_FILE := preload("res://shaders/voxel/voxel_dda_dedicated.glsl")
 
 var visualize_steps := false
 
-## Iluminación del escenario, en el mismo push constant que el resto. Los valores por defecto son el
-## sol que antes estaba clavado en el shader y su ambiente constante, para que una escena sin mapa
-## importado se siga viendo igual que siempre.
+## Scene lighting, in the same push constant as the rest. Defaults match the sun direction and
+## constant ambient light previously hard-coded in the shader, so a scene without an imported map
+## continues to look the same.
 var sun_direction := Vector3(-0.45, 0.82, 0.35).normalized()
 var sun_color := Color.WHITE
 var sun_energy := 1.05
@@ -131,9 +131,9 @@ func configure_entries(
 	brick_table := PackedInt32Array(),
 	brick_grid := Vector2i.ZERO
 ) -> bool:
-	# Un refit solo es válido si conserva exactamente las mismas hojas. Antes el tamaño sólo se
-	# reconstruía al cambiar la paleta: crecer por encima de las 256 reservas podía reutilizar una
-	# topología de otro tamaño y dejar registros fuera del BVH.
+	# A refit is valid only if it preserves exactly the same leaves. Previously, size was rebuilt
+	# only when the palette changed: growing beyond the 256 reserved leaves could reuse a topology
+	# of a different size and leave records outside the BVH.
 	var rebuild_topology := _topology_must_rebuild(
 		_bvh_topology.is_empty(), _entries.size(), entries.size(), not palette_texels.is_empty()
 	)
@@ -199,8 +199,8 @@ func configure_entries(
 	if not palette_texels.is_empty():
 		_pending_configuration["palette_texels"] = palette_texels
 		_pending_configuration["palette_rows"] = maxi(1, palette_rows)
-	# La tabla de bricks solo viaja cuando cambia: son megabytes y el resto de metadatos se
-	# resincroniza en cuanto se mueve una sola Shape.
+	# Upload the brick table only when it changes: it is several megabytes, while the other metadata
+	# is resynchronized as soon as any Shape moves.
 	if not brick_table.is_empty():
 		_pending_configuration["brick_table"] = brick_table
 	if brick_grid != Vector2i.ZERO:
@@ -213,17 +213,17 @@ func get_entry_count() -> int:
 	return _entries.size()
 
 
-## Espejo CPU de la transformada que se empaquetó para una hoja. Permite auditar la última etapa
-## scene -> renderer sin leer de vuelta el buffer Vulkan ni introducir una sincronización de GPU.
+## CPU mirror of the transform packed for a leaf. Allows auditing the final scene -> renderer
+## stage without reading back the Vulkan buffer or introducing GPU synchronization.
 func get_entry_transform(index: int) -> Transform3D:
 	if index < 0 or index >= _entries.size():
 		return Transform3D.IDENTITY
 	return (_entries[index] as Dictionary).get("transform", Transform3D.IDENTITY)
 
 
-## Trabajo de metadatos que el hilo principal ya empaquetó pero el callback de render aún no ha
-## consumido. No lee de vuelta memoria Vulkan ni bloquea la GPU; solo permite distinguir una pose
-## realmente pendiente de una cola ya entregada al RenderingDevice.
+## Metadata work already packed by the main thread but not yet consumed by the render callback.
+## This does not read Vulkan memory back or block the GPU; it only distinguishes a genuinely pending
+## pose from an update queue already submitted to the RenderingDevice.
 func get_pending_gpu_update_count() -> int:
 	_configuration_mutex.lock()
 	var count := _pending_shape_updates.size() + _pending_node_updates.size() \
@@ -234,9 +234,9 @@ func get_pending_gpu_update_count() -> int:
 	return count
 
 
-## Edad del batch de transforms más antiguo aún no consumido. Una cola no vacía durante movimiento
-## es normal —se prepara antes del callback del mismo frame—; una edad creciente sí señala que el
-## render dejó de seguir a física.
+## Age of the oldest unconsumed transform batch. A nonempty queue during movement is normal—it is
+## prepared before the callback in the same frame—but a growing age indicates rendering has fallen
+## behind physics.
 func get_pending_gpu_update_age_ms() -> float:
 	_configuration_mutex.lock()
 	var since := _pending_entry_updates_since_usec
@@ -262,8 +262,8 @@ func update_entry_transforms(updates: Array[Dictionary]) -> bool:
 	return update_entries(entry_updates)
 
 
-## Cambia únicamente datos de sombreado. No toca bounds ni transform, por lo que refitear el BVH
-## aquí sería trabajo inútil cada frame para cualquier material animado.
+## Changes shading data only. It does not touch bounds or transforms, so refitting the BVH here
+## would waste work every frame for any animated material.
 func update_entry_visuals(updates: Array[Dictionary]) -> bool:
 	if _entries.is_empty():
 		return false
@@ -319,9 +319,9 @@ func update_entries(updates: Array[Dictionary]) -> bool:
 			)
 		if _glass_original_to_compact.has(entry_index):
 			var glass_index := int(_glass_original_to_compact[entry_index])
-			# Activar una hoja reservada cambia dimensiones, atlas, tabla de bricks y paleta, no solo
-			# transformada. Copiar únicamente esta última dejaba los fragmentos de vidrio apuntando al
-			# placeholder 1³ y por ello podían conservar colisión pero desaparecer del pase transparente.
+			# Activating a reserved leaf changes dimensions, atlas, brick table, and palette, not just
+			# the transform. Copying only the latter left glass fragments pointing to the 1³ placeholder,
+			# retaining collision while disappearing from the transparent pass.
 			var glass_entry := _glass_entry_after_update(
 				_glass_entries[glass_index] as Dictionary, entry, update.has("entry")
 			)
@@ -456,7 +456,7 @@ func _initialize_render_resources() -> void:
 	_sampler = _rd.sampler_create(sampler_state)
 	_palette = _create_palette_texture(PackedColorArray(), 1)
 	_dummy_shadow_texture = _create_dummy_shadow_texture()
-	# Un slot vacío para que el set de uniformes sea válido antes de que llegue la primera tabla.
+	# Empty slot so the uniform set is valid before the first table arrives.
 	_brick_buffer = _rd.storage_buffer_create(4, PackedInt32Array([-1]).to_byte_array())
 	_brick_buffer_bytes = 4
 	_shadow_static = [_dummy_shadow_texture, _dummy_shadow_texture, _dummy_shadow_texture, _dummy_shadow_texture]

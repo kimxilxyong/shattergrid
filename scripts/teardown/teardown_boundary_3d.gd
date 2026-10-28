@@ -1,11 +1,11 @@
 class_name TeardownBoundary3D
 extends Node3D
-## Límite jugable authored por el `<boundary>` de un mapa de Teardown.
+## Playable boundary authored by a Teardown map's `<boundary>`.
 ##
-## La barrera física son cajas delgadas, una por arista del polígono. La representación completa
-## se agrupa en un solo ArrayMesh y el shader descarta visualmente todo salvo una ventana alrededor
-## del punto al que se acerca el jugador. Incluso Lee (31 aristas) cuesta un draw call y 31 pruebas
-## 2D baratas por frame; no hay partículas, luces ni nodos visuales por segmento.
+## The physical barrier uses thin boxes, one per polygon edge. The full representation is combined
+## into one ArrayMesh, and the shader visually discards everything except a window around the point
+## the player is approaching. Even Lee (31 edges) costs one draw call and 31 inexpensive 2D tests
+## per frame; there are no particles, lights, or visual nodes per segment.
 
 const WALL_BOTTOM := -64.0
 const WALL_HEIGHT := 192.0
@@ -30,8 +30,8 @@ varying float segment_selected;
 
 void vertex() {
 	segment_selected = 1.0 - step(0.1, abs(UV2.x - active_segment));
-	// Las aristas no elegidas se convierten en triángulos degenerados antes de rasterizarse. Así el
-	// límite completo sigue en un solo mesh, pero la GPU solo sombrea la pared que el jugador tocará.
+	// Unselected edges become degenerate triangles before rasterization. The full boundary remains
+	// one mesh, but the GPU shades only the wall the player will touch.
 	if (segment_selected < 0.5) {
 		VERTEX = vec3(0.0);
 	}
@@ -44,7 +44,7 @@ void fragment() {
 	float vertical_distance = abs(boundary_world_position.y - reveal_position.y);
 	float vertical = 1.0 - smoothstep(3.8, 9.0, vertical_distance);
 
-	// Puntos amarillos y un barrido suave: comunica un límite, sin levantar una pared opaca.
+	// Yellow dots and a soft sweep communicate a boundary without raising an opaque wall.
 	vec2 lattice = fract(vec2(UV.x * 1.15, boundary_world_position.y * 0.82));
 	float dots = 1.0 - smoothstep(0.12, 0.23, length(lattice - vec2(0.5)));
 	float scan_coord = fract(boundary_world_position.y * 0.115 - TIME * 0.42);
@@ -151,7 +151,7 @@ func _process(delta: float) -> void:
 
 	var proximity := clampf((REVEAL_DISTANCE - distance) / REVEAL_DISTANCE, 0.0, 1.0)
 	proximity *= proximity
-	# Al quedar pegado a la pared debe seguir leyéndose aunque Jolt ya haya cancelado la velocidad.
+	# It must remain readable while pressed against the wall, even after Jolt cancels velocity.
 	var contact_linger := clampf((2.2 - distance) / 2.2, 0.0, 1.0)
 	var target_strength := proximity * maxf(approach, contact_linger)
 	var response := 1.0 - exp(-VISUAL_RESPONSE * maxf(delta, 0.0))

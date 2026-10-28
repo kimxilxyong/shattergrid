@@ -7,19 +7,19 @@ extends RefCounted
 
 const VOXEL_SIZE := 0.1
 
-## Cuántos voxeles de 10 cm ocupa cada voxel del `.vox` de origen.
+## Number of 10 cm voxels occupied by each source `.vox` voxel.
 ##
-## La escala del proyecto es 1 voxel = 10 cm y vale para todo el mapa por igual: casas, props y
-## tanque comparten rejilla, así que un modelo de 64 voxeles de alto mide 6,4 m y el tanque, de 78
-## voxeles de largo, mide 7,8 m. Antes las casas entraban a 2 (20 cm por voxel de origen) y salían
-## de 12,8 m: cuatro veces la altura del tanque, que es lo que hacía irreconocible el barrio.
+## The project uses one scale across the entire map: 1 voxel = 10 cm. Houses, props, and the tank
+## share a grid, so a 64-voxel-high model is 6.4 m tall and the tank, at 78 voxels long, is 7.8 m.
+## Houses used to load at scale 2 (20 cm per source voxel), making them 12.8 m tall—four times
+## the tank's height and making the neighborhood unrecognizable.
 ##
-## Contrapartida conocida de los Metro Minis: están modelados como maqueta, con puertas de 12
-## voxeles, y a esta escala miden 1,2 m — el jugador de 1,8 m no entra por ellas. Es un defecto del
-## arte de origen, no de la escala; el `.voxel.json` de un modelo concreto puede fijar otro valor.
+## Known Metro Minis tradeoff: they are modeled as miniatures, with 12-voxel doors that are 1.2 m
+## at this scale—too short for the 1.8 m player. This is a flaw in the source art, not the scale;
+## a model-specific `.voxel.json` can set a different value.
 const MODEL_SCALE := 1
 
-## Grosor en voxeles de 10 cm de la cáscara que sobrevive al vaciado. Dos deja muros de 20 cm.
+## Shell thickness in 10 cm voxels after hollowing. Two leaves 20 cm walls.
 const SHELL_THICKNESS := 2
 
 
@@ -90,7 +90,7 @@ static func load_asset(path: String) -> Dictionary:
 		path, int(sidecar.get("scale", MODEL_SCALE)), SHELL_THICKNESS, VOXEL_SIZE
 	)
 	if not bool(decoded.get("ok", false)):
-		push_error("VoxelAssetImporter: no se pudo decodificar %s (%s)" % [
+		push_error("VoxelAssetImporter: failed to decode %s (%s)" % [
 			path, decoded.get("error", "unknown")
 		])
 		return {}
@@ -139,16 +139,16 @@ static func _build_palette(
 static func _toughness_of(color: Color) -> Dictionary:
 	if color.s < 0.15:
 		if color.v < 0.62:
-			return {"hardness": 2.4, "density": 2400.0} # hormigón, pizarra
+			return {"hardness": 2.4, "density": 2400.0} # concrete, slate
 		return {"hardness": 1.0, "density": 1500.0} # yeso, revoco
 	var hue := color.h * 360.0
 	if hue >= 170.0 and hue <= 265.0:
-		return {"hardness": 0.5, "density": 2500.0} # vidrio
+		return {"hardness": 0.5, "density": 2500.0} # glass
 	if hue >= 60.0 and hue < 170.0:
-		return {"hardness": 0.6, "density": 500.0} # vegetación, plástico
+		return {"hardness": 0.6, "density": 500.0} # vegetation, plastic
 	if hue >= 15.0 and hue <= 55.0:
-		return {"hardness": 1.0, "density": 700.0} # madera
-	return {"hardness": 2.0, "density": 2000.0} # ladrillo, teja
+		return {"hardness": 1.0, "density": 700.0} # wood
+	return {"hardness": 2.0, "density": 2000.0} # brick, roof tile
 
 
 static func _load_sidecar(path: String) -> Dictionary:
@@ -158,5 +158,5 @@ static func _load_sidecar(path: String) -> Dictionary:
 	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(sidecar_path))
 	if parsed is Dictionary:
 		return parsed
-	push_warning("VoxelAssetImporter: sidecar inválido %s" % sidecar_path)
+	push_warning("VoxelAssetImporter: invalid sidecar %s" % sidecar_path)
 	return {}

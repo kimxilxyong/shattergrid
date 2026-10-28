@@ -11,7 +11,7 @@ static func _record(position: Vector3, type := "ball", size := "0.16") -> Dictio
 
 
 func _run() -> void:
-	print("puertas Teardown: bisagras, chapa y agarre")
+	print("Teardown doors: hinges, panel, and grabbing")
 	var records: Array[Dictionary] = [
 		_record(Vector3(-0.6, 0.4, -0.1)),
 		_record(Vector3(-0.6, 2.1, -0.1)),
@@ -21,15 +21,15 @@ func _run() -> void:
 		records, AABB(Vector3(-0.65, 0.0, -0.1), Vector3(1.3, 2.2, 0.2))
 	)
 	_check(not roles.is_empty() and (roles.hinges as Array).size() == 2,
-		"dos joints verticales se clasifican como eje de bisagra")
+		"two vertical joints are classified as a hinge axis")
 	_check(not (roles.get("latch", {}) as Dictionary).is_empty(),
-		"el joint del borde contrario se clasifica como chapa")
+		"the joint on the opposite edge is classified as a latch")
 	var non_door: Array[Dictionary] = [
 		_record(Vector3(0.0, 0.1, 0.0)), _record(Vector3(0.0, 0.3, 0.0)),
 	]
 	_check(TeardownMapImporter.classify_door_joint_records(
 		non_door, AABB(Vector3.ZERO, Vector3(8.0, 0.5, 0.5))
-	).is_empty(), "un mecanismo horizontal no se convierte accidentalmente en puerta")
+	).is_empty(), "a horizontal mechanism is not accidentally converted into a door")
 
 	if FileAccess.file_exists(LEE_MAP):
 		var world := VoxelWorld3D.new()
@@ -50,39 +50,39 @@ func _run() -> void:
 			if child is VoxelDoor3D:
 				doors.append(child)
 		_check(int(report.get("doors", 0)) > 0 and not doors.is_empty(),
-			"el importador reconoce puertas del mapa real")
+			"the importer recognizes doors in the real map")
 		var closed: VoxelDoor3D
 		for door: VoxelDoor3D in doors:
 			if door.is_latched():
 				closed = door
 				break
-		_check(closed != null, "conserva la tercera junta del mapa como chapa cerrada")
+		_check(closed != null, "the map's third joint remains a closed latch")
 		if closed != null:
 			var imported_rigid := closed.get_rigid_body()
-			print("  puerta cerrada: masa=", imported_rigid.mass,
+			print("  closed door: mass=", imported_rigid.mass,
 				" inercia=", imported_rigid.inertia,
 				" bisagras=", closed.hinge_records.size(),
 				" attrs=", (closed.hinge_records[0] as Dictionary).get("attributes", {}) \
 					if not closed.hinge_records.is_empty() else {})
 			_check(imported_rigid.mass >= VoxelDoor3D.MIN_DOOR_MASS - 0.01 \
 				and imported_rigid.mass <= VoxelDoor3D.MAX_DOOR_MASS + 0.01,
-				"la hoja hueca no se importa como un bloque macizo de varias toneladas")
+				"the hollow door leaf is not imported as a solid block weighing several tons")
 			var all_hinges_are_free_pins := true
 			for record: Dictionary in closed.hinge_records:
 				all_hinges_are_free_pins = all_hinges_are_free_pins \
 					and record.get("joint") is PinJoint3D
 			_check(all_hinges_are_free_pins,
-				"los dos puntos del eje usan joints de rotación libre")
+				"both hinge-axis points use freely rotating joints")
 			var constraint_hold_keys: Array[String] = []
 			for record: Dictionary in closed.hinge_records:
 				constraint_hold_keys.append(String(record.get("physics_hold_key", "")))
 			if not closed.latch_record.is_empty():
 				constraint_hold_keys.append(String(closed.latch_record.get("physics_hold_key", "")))
 			closed.begin_grab()
-			_check(closed.is_latched(), "clic derecho no desbloquea una chapa intacta")
-			_check(closed.voxel_body.is_awake(), "agarrar despierta el Body sin reemplazar sus joints")
-			# Una absorción cambia el dueño lógico sin cambiar la hoja. Door, joints y retenciones deben
-			# seguir al heredero antes de que el Body vacío salga del World.
+			_check(closed.is_latched(), "right-click does not unlatch an intact door")
+			_check(closed.voxel_body.is_awake(), "grabbing wakes the Body without replacing its joints")
+			# Absorption changes logical ownership without changing the door. The Door, joints, and
+			# holds must follow the successor before the empty Body leaves the World.
 			var old_owner := closed.voxel_body
 			var heir := VoxelBody3D.new()
 			heir.state = VoxelBody3D.State.DYNAMIC
@@ -95,18 +95,18 @@ func _run() -> void:
 			world.body_split.emit(old_owner, [heir] as Array[VoxelBody3D])
 			_check(closed.voxel_body == heir and closed.get_rigid_body() == heir.get_physics_body() \
 				and heir.get_physics_body().get_meta(VoxelDoor3D.BODY_META, null) == closed,
-				"la puerta y su interacción transfieren ownership durante split/merge")
+				"the door and its interaction transfer ownership during split/merge")
 			world.unregister_body(old_owner)
 			old_owner.queue_free()
 			var latch_point := (closed.latch_record.transform as Transform3D).origin
 			world.damage_sphere(latch_point, 0.55, 100.0)
-			_check(not closed.is_latched(), "destruir los voxeles de la chapa libera la puerta")
+			_check(not closed.is_latched(), "destroying the latch voxels releases the door")
 			var hinge_points: Array[Vector3] = []
 			for record: Dictionary in closed.hinge_records:
 				hinge_points.append((record.transform as Transform3D).origin)
-			# Estado que fallaba en juego: la chapa ya no existe, pero las dos bisagras siguen vivas.
-			# Tirar del borde opuesto con exactamente el límite de fuerza del jugador debe producir giro
-			# alrededor del eje, no traslación ni una hoja que se comporta como una pared soldada.
+			# Previously broken in-game state: the panel is gone, but both hinges are still live.
+			# Pulling the opposite edge with exactly the player's force limit must rotate around the
+			# hinge, not translate or behave like a welded wall.
 			if hinge_points.size() >= 2:
 				await physics_frame
 				await physics_frame
@@ -121,7 +121,7 @@ func _run() -> void:
 							live_joint.get_class() if live_joint != null else "null",
 							VoxelDoor3D._record_position(record),
 						])
-				print("  joints vivos al abrir: ", opening_records)
+				print("  live joints while opening: ", opening_records)
 				var hinge_axis: Vector3 = (hinge_points.back() - hinge_points.front()).normalized()
 				var hinge_center: Vector3 = (hinge_points.back() + hinge_points.front()) * 0.5
 				var local_pull_point := rigid.to_local(latch_point)
@@ -146,17 +146,17 @@ func _run() -> void:
 					hinge_axis.dot(initial_radial.cross(final_radial)),
 					initial_radial.dot(final_radial)
 				))
-				print("  apertura con bisagras: grados=", rad_to_deg(opened_angle),
-					" masa=", rigid.mass, " w=", rigid.angular_velocity,
+				print("  hinged opening: degrees=", rad_to_deg(opened_angle),
+					" mass=", rigid.mass, " w=", rigid.angular_velocity,
 					" hinges=", closed.live_hinge_count())
 				_check(opened_angle > deg_to_rad(12.0) and closed.live_hinge_count() >= 1,
-					"sin chapa, el agarre del jugador gira la hoja sobre sus bisagras")
+					"without a latch, the player's grip rotates the leaf around its hinges")
 				_check(closed._frame_collision_exceptions.is_empty(),
-					"al salir del encaje restaura la colisión contra el marco")
+					"collision against the frame is restored when it leaves the recess")
 			for point: Vector3 in hinge_points:
 				world.damage_sphere(point, 0.55, 100.0)
 			_check(closed.live_hinge_count() == 0,
-				"destruir los dos apoyos de bisagra desprende completamente la hoja")
+				"destroying both hinge supports fully detaches the leaf")
 			var transform_before_fall := closed.get_rigid_body().global_transform
 			closed.end_grab()
 			for _frame in 45:
@@ -168,9 +168,9 @@ func _run() -> void:
 				if VoxelDoor3D._record_joint_is_live(record) and (record.get("owner_body") \
 						== closed.voxel_body or record.get("other_body") == closed.voxel_body):
 					live_attached_records += 1
-			print("  puerta libre: antes=", transform_before_fall.origin,
-				" después=", transform_after_fall.origin, " awake=", closed.voxel_body.is_awake(),
-				" masa=", closed.get_rigid_body().mass, " v=", closed.get_rigid_body().linear_velocity,
+			print("  free door: before=", transform_before_fall.origin,
+				" after=", transform_after_fall.origin, " awake=", closed.voxel_body.is_awake(),
+				" mass=", closed.get_rigid_body().mass, " v=", closed.get_rigid_body().linear_velocity,
 				" w=", closed.get_rigid_body().angular_velocity, " joints extra=", live_attached_records,
 				" freeze=", closed.get_rigid_body().freeze, " boxes=", closed.voxel_body.compound_boxes)
 			var moved_or_rotated := transform_before_fall.origin.distance_to(
@@ -179,16 +179,16 @@ func _run() -> void:
 				transform_after_fall.basis.y
 			)) < 0.995
 			_check(moved_or_rotated,
-				"sin chapa ni bisagras la hoja participa en Jolt y deja de comportarse como pared")
+				"without a latch or hinges, Jolt simulates the leaf and it stops behaving like a wall")
 			var all_constraint_holds_released := true
 			for hold_key: String in constraint_hold_keys:
 				all_constraint_holds_released = all_constraint_holds_released \
 					and not closed.voxel_body.has_physics_hold(hold_key)
 			_check(all_constraint_holds_released,
-				"romper la puerta libera atómicamente los holds de todos sus joints")
+				"breaking the door atomically releases the holds for all its joints")
 		world.queue_free()
 	else:
-		print("  SKIP mapa Lee no disponible; se ejecutó la clasificación sintética")
+		print("  SKIP Lee map unavailable; synthetic classification was run")
 
 	print("")
 	if failures == 0:

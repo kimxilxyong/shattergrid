@@ -1,44 +1,42 @@
 class_name VoxelShadowClipmaps
 extends Node
-## Volumen de ocupacion del mapa entero para los rayos de sol y de AO, con cuatro niveles de
-## resolucion. Cada texel R8UI guarda un bloque de 2x2x2 celdas, un bit por celda.
+## Full-map occupancy volume for sun and AO rays, with four resolution levels. Each R8UI texel
+## stores a 2x2x2 block of cells, one bit per cell.
 ##
-## Antes esto eran cuatro clipmaps centrados en la camara que se desplazaban con ella, y esa era la
-## fuente de los trompicones al caminar: cada vez que la camara cruzaba el borde de un nivel habia
-## que rasterizar en CPU la loncha que entraba, y eso medido en Lee son 82-144 ms clavados en un solo
-## frame. Ahora el volumen es fijo y cubre el mapa de punta a punta, que es lo que hace Teardown
-## (1252x128x1252 texeles con tres mips). No se desplaza nunca, asi que no hay nada que rasterizar
-## mientras juegas: solo lo que cambia por destruccion o por objetos que se mueven.
+## Previously, these were four camera-centered clipmaps that moved with the camera, causing hitches
+## while walking: whenever the camera crossed a level boundary, the newly entered slice had to be
+## rasterized on the CPU. On Lee, that took 82–144 ms in a single frame. The volume is now fixed and
+## covers the entire map, as in Teardown (1252x128x1252 texels with three mips). It never moves, so
+## nothing is rasterized during play except changes caused by destruction or moving objects.
 ##
-## La capa estatica y la dinamica van fusionadas en un solo volumen. Separadas costarian el doble de
-## memoria — inviable al cubrir el mapa entero — y ademas obligaban al shader a leer dos texturas por
-## muestra para juntarlas con un OR. El precio es que mover algo obliga a re-rasterizar su region
-## incluyendo la geometria fija de alrededor, pero esa region es pequena.
+## Static and dynamic layers are combined in one volume. Keeping them separate would double memory
+##—impractical for the full map—and require the shader to read two textures per sample and OR them
+## together. The tradeoff is that moving an object requires rerasterizing its region, including
+## nearby static geometry, but that region is small.
 ##
-## La clase conserva el nombre `VoxelShadowClipmaps` por compatibilidad con el renderer y los
-## bindings existentes.
+## Keep the `VoxelShadowClipmaps` class name for compatibility with the renderer and existing bindings.
 
 const LEVELS := 4
-## Celda del nivel 0. Los niveles van doblando: 0,2 / 0,4 / 0,8 / 1,6 m.
+## Level 0 cell size. Each level doubles: 0.2 / 0.4 / 0.8 / 1.6 m.
 ##
-## A 0,1 m el mapa entero de Lee (329 x 73 x 367 m) pedia 1 GB. A 0,2 m son 133 MB, que es justo lo
-## que ya costaban los cuatro clipmaps de antes, y la resolucion solo empeora en los primeros 51 m
-## —los unicos que el nivel 0 cubria a 0,1 m— a cambio de que no haya un solo tiron.
+## At 0.1 m, all of Lee (329 x 73 x 367 m) required 1 GB. At 0.2 m, it uses 133 MB—the same as the
+## previous four clipmaps—and resolution is reduced only in the first 51 m (the only region level 0
+## previously covered at 0.1 m), in exchange for eliminating hitches.
 const BASE_CELL_SIZE := 0.2
-## Techo del nivel 0. Un mapa mas grande que Lee engorda la celda en vez de reventar la VRAM.
+## Level 0 memory ceiling. For maps larger than Lee, increase cell size instead of exhausting VRAM.
 const MAX_LEVEL0_BYTES := 192 * 1024 * 1024
-## Margen alrededor del mapa para que un rayo que sale por un borde no lea basura.
+## Padding around the map so rays leaving an edge do not read invalid data.
 const VOLUME_PADDING := 2.0
-## Techo de refresco dinamico por frame. Lo que no entra se arrastra al siguiente: una sombra un
-## frame tarde no se ve; un frame de 100 ms si.
-## Shapes en movimiento que refrescan sombra por frame. Es un techo duro, no un presupuesto de
-## tiempo: la version anterior acumulaba en una cola lo que no le daba tiempo a rasterizar, y con 65
-## props despiertos entraban mas regiones por frame de las que salian. La cola crecia sin limite y
-## `_coalesce`, que es O(n^2) sobre ella, subia sola de 21 a 191 ms mientras nadie tocaba nada.
+## Hard per-frame limit on dynamic refreshes. Deferred work carries over: a shadow one frame late is
+## invisible, while a 100 ms frame is not.
+## Number of moving Shapes whose shadows refresh per frame. This is a hard limit, not a time budget:
+## the previous version queued work it could not rasterize, and with 65 awake props, more regions
+## were added per frame than removed. The queue grew without limit, and `_coalesce` (O(n^2) over
+## that queue) climbed from 21 to 191 ms while nothing was touched.
 const SHAPES_PER_FRAME := 12
-## Umbral de la zona muerta, al cuadrado. Una celda del nivel fino son 10 cm.
+## Squared deadband threshold. A fine-level cell is 10 cm.
 const SHADOW_DEADBAND_SQ := 0.01
-## Cada cuantos frames se barren las Shapes borradas.
+## Number of frames between sweeps for deleted Shapes.
 const SWEEP_EVERY_FRAMES := 15
 
 var last_upload_bytes := 0
@@ -54,8 +52,8 @@ var damage_updates_enabled := true
 var _world: VoxelWorld3D
 var _camera: Camera3D
 var _textures: Array[VoxelAtlas3D] = []
-## Celda (no metros) de la esquina baja del volumen, por nivel. Todos los niveles arrancan en el
-## mismo punto del mundo, asi que estos son el mismo sitio expresado en celdas distintas.
+## Cell coordinates (not meters) of the volume's lower corner, per level. All levels start at the
+## same world position, expressed in their respective cell coordinates.
 var _origins: Array[Vector3i] = []
 var _logical_sizes: Array[Vector3i] = []
 var _packed_sizes: Array[Vector3i] = []
@@ -65,26 +63,26 @@ var _update_planner := VoxelShadowUpdatePlanner.new()
 var _movable_bounds := {}
 var _shape_cache: Array[VoxelShape3D] = []
 var _shape_cache_frame := -1
-## Quien toca una caja, sin barrer las 2312 Shapes del mapa en cada region.
+## Finds Shapes intersecting a box without scanning all 2,312 map Shapes for every region.
 var _grid := VoxelShapeGrid.new()
-## Cajas sucias que no entraron en el presupuesto del frame anterior.
-## Por donde empieza el reparto de turnos: sin rotarlo, las primeras Shapes de la lista se comen el
-## cupo cada frame y las ultimas no ven una actualizacion de sombra jamas.
-## Cajas de daño pendientes por nivel, sin fusionar mas alla de `MERGE_MAX_SIDE`.
+## Dirty boxes that did not fit within the previous frame's budget.
+## Round-robin starting point: without rotation, the first Shapes in the list use the quota every
+## frame and the last ones never receive a shadow update.
+## Pending damage boxes per level, merged only up to `MERGE_MAX_SIDE`.
 var _pending_damage_regions: Array = []
 var _damage_level_cursor := 1
 
 
-## Rasterizar los cuatro niveles del mapa entero son ~21 s de C++ en el hilo principal. Con una
-## pantalla de carga escuchando se usa `setup_progressive`, que cede un frame entre niveles para que
-## algo se dibuje; sin ella `setup` sigue siendo una llamada normal y no cede nada.
+## Rasterizing all four levels of the full map takes ~21 s of C++ on the main thread. With a loading
+## screen connected, use `setup_progressive` to yield a frame between levels so something can be
+## drawn; without one, `setup` remains a normal call and does not yield.
 func setup(voxel_world: VoxelWorld3D, camera: Camera3D) -> bool:
-	# A través del `Callable` porque el analizador exige `await` ante cualquier corrutina, y sin
-	# pantalla `_setup` nunca se suspende. Mismo motivo que en `TeardownMapImporter.import_map`.
+	# Use a `Callable` because the parser requires `await` for every coroutine, and `_setup` never
+	# suspends without a loading screen. Same reason as `TeardownMapImporter.import_map`.
 	var result: Variant = _setup.call(voxel_world, camera, Callable())
 	if result is bool:
 		return result
-	push_error("VoxelShadowClipmaps: el arranque sin pantalla de carga se suspendió")
+	push_error("VoxelShadowClipmaps: startup without a loading screen was suspended")
 	return false
 
 
@@ -100,17 +98,18 @@ func _setup(voxel_world: VoxelWorld3D, camera: Camera3D, progress: Callable) -> 
 	if not _measure_volume():
 		return false
 	total_memory_bytes = 0
-	# Se rasteriza antes de crear la textura y esos bytes son los datos iniciales del
-	# `texture_create`. Crearla vacia y subirla despues costaba 16,7 s de los 21 s del arranque:
-	# `update_region` extrae la region sucia byte a byte en GDScript —y aqui la region sucia es el
-	# volumen entero, 155 MB en el nivel 0—, la vuelve a copiar para redondear a potencia de dos, y
-	# remata con un buffer de staging del mismo tamano. Todo para llegar a los mismos bytes.
+	# Rasterize before creating the texture and use those bytes as initial `texture_create` data.
+	# Creating an empty texture and uploading it later took 16.7 s of the 21 s startup: `update_region`
+	# extracts the dirty region byte by byte in GDScript (here the dirty region is the entire volume,
+	# 155 MB at level 0), copies it again to round up to a power of two, then copies it into a staging
+	# buffer of the same size—all to produce the same bytes.
 	var group := _shape_group()
 	if progress.is_valid():
-		progress.call(0.0, "Trazando el volumen de sombras…  %d niveles" % LEVELS)
+		progress.call(0.0, "Tracing shadow volume…  %d levels" % LEVELS)
 		await Engine.get_main_loop().process_frame
-	# Los cuatro niveles son independientes: leen las mismas Shapes sin tocarlas y cada uno escribe
-	# su propio buffer. En serie son 4,7 s del arranque; repartidos, lo que tarde el mas gordo.
+	# The four levels are independent: they read the same Shapes without modifying them, and each
+	# writes to its own buffer. Sequentially they take 4.7 s of startup; in parallel, they take as
+	# long as the slowest one.
 	var layers: Array[PackedByteArray] = []
 	layers.resize(LEVELS)
 	var task := WorkerThreadPool.add_group_task(
@@ -118,8 +117,8 @@ func _setup(voxel_world: VoxelWorld3D, camera: Camera3D, progress: Callable) -> 
 	)
 	WorkerThreadPool.wait_for_group_task_completion(task)
 	for level in LEVELS:
-		# La copia en CPU solo hace falta para crear la textura: despues nadie la lee, y en el nivel 0
-		# son 155 MB de RAM que no pintan nada. Se sueltan al salir del bucle.
+		# The CPU copy is needed only to create the texture; nothing reads it afterward. At level 0,
+		# it occupies 155 MB of unused RAM, so release it when the loop ends.
 		var texture := VoxelAtlas3D.new()
 		if not texture.create(_packed_sizes[level], layers[level], true):
 			return false
@@ -133,9 +132,8 @@ func _setup(voxel_world: VoxelWorld3D, camera: Camera3D, progress: Callable) -> 
 	return true
 
 
-## Encaja el volumen sobre el mapa. Todos los niveles comparten esquina, y esa esquina se alinea al
-## tamano de celda mas grueso para que la celda de cada nivel caiga exacta y no haya que redondear
-## por nivel: asi el shader solo necesita un origen para los cuatro.
+## Fit the volume to the map. All levels share a corner, aligned to the coarsest cell size so cells
+## in each level line up exactly without per-level rounding; the shader then needs only one origin.
 func _measure_volume() -> bool:
 	var bounds := AABB()
 	var first := true
@@ -177,8 +175,8 @@ func _measure_volume() -> bool:
 		var level0 := _packed_sizes[0]
 		if level0.x * level0.y * level0.z <= MAX_LEVEL0_BYTES:
 			break
-		# Mapa mas grande de lo previsto: se dobla la celda y se vuelve a medir, en vez de intentar
-		# reservar una textura que no cabe.
+		# The map is larger than expected: double the cell size and measure again instead of trying
+		# to allocate a texture that will not fit.
 		_base_cell_size *= 2.0
 	return true
 
@@ -190,10 +188,9 @@ func get_static_rids() -> Array[RID]:
 	return result
 
 
-## Estatico y dinamico comparten volumen. El shader lee solo el juego "estatico"; estos bindings
-## quedan apuntando a las mismas texturas para no tener que renumerar el set de uniformes entero.
-## Estos cuatro slots no consumen memoria adicional. Eliminarlos exigiría renumerar los bindings
-## 15-23 del shader y del efecto.
+## Static and dynamic data share a volume. The shader reads only the "static" set; these bindings
+## point to the same textures to avoid renumbering the entire uniform set. These four slots use no
+## additional memory. Removing them would require renumbering shader and effect bindings 15–23.
 func get_dynamic_rids() -> Array[RID]:
 	return get_static_rids()
 
@@ -204,9 +201,9 @@ func get_upload_sources() -> Array:
 	return result
 
 
-## Cinco vec4, que es justo el tamano del buffer que ya existia:
-##   [0] xyz = esquina del volumen en metros, w = 1 si hay sombras
-##   [1..4] xyz = tamano logico del nivel en celdas, w = metros por celda
+## Five vec4 values, exactly the size of the existing buffer:
+##   [0] xyz = volume corner in meters, w = 1 if shadows are enabled
+##   [1..4] xyz = logical level size in cells, w = meters per cell
 func get_shader_metadata() -> PackedFloat32Array:
 	var values := PackedFloat32Array()
 	values.resize(20)
@@ -225,8 +222,8 @@ func get_shader_metadata() -> PackedFloat32Array:
 	return values
 
 
-## Los cuatro niveles son texturas de la RenderingDevice: si no se sueltan a mano, Godot avisa de
-## RIDs filtrados al salir.
+## The four levels are RenderingDevice textures. Release them manually or Godot reports leaked RIDs
+## on exit.
 func _exit_tree() -> void:
 	for texture: VoxelAtlas3D in _textures:
 		texture.release()
@@ -234,7 +231,7 @@ func _exit_tree() -> void:
 
 
 func _process(_delta: float) -> void:
-	# El volumen es fijo: aqui ya no se desplaza nada. Solo se atiende lo que cambia.
+	# The volume is fixed: nothing moves here. Process only changes.
 	last_upload_bytes = 0
 	last_region_allocate_ms = 0.0
 	last_region_raster_ms = 0.0
@@ -259,7 +256,7 @@ func _track_shapes() -> void:
 	last_upload_bytes = total_memory_bytes
 
 
-## Todas las Shapes en un solo grupo: el volumen ya no separa estatico de dinamico.
+## All Shapes in one group: the volume no longer separates static and dynamic data.
 func _shape_group() -> Dictionary:
 	var group := {"shapes": [], "transforms": [], "voxel_sizes": PackedFloat32Array()}
 	for shape in _all_shapes():
@@ -273,8 +270,8 @@ func _rasterize_into(level: int, group: Dictionary, layers: Array) -> void:
 	layers[level] = _rasterize_level(group, level)
 
 
-## Rellena un nivel entero en C++. En GDScript esto era un bucle por voxel vivo y por nivel: 79,3 M
-## x 4 = 317 M de iteraciones a 1,58 M/s en el mapa de Lee, o sea 201 s de arranque en negro.
+## Fill an entire level in C++. In GDScript, this was a loop over every live voxel at every level:
+## 79.3 M x 4 = 317 M iterations at 1.58 M/s on Lee, or 201 s of a black startup screen.
 func _rasterize_level(group: Dictionary, level: int) -> PackedByteArray:
 	var packed := _packed_sizes[level]
 	if group.shapes.is_empty():
@@ -307,7 +304,7 @@ func _refresh_world_cell_region(level: int, logical_region: AABB) -> void:
 		)
 	last_region_raster_ms += (Time.get_ticks_usec() - raster_started) / 1000.0
 	var upload_started := Time.get_ticks_usec()
-	# El volumen no envuelve: la region cae entera dentro de la textura, asi que es una sola copia.
+	# The volume does not wrap: the entire region fits inside the texture, so this is a single copy.
 	var copies: Array[Dictionary] = [{
 		"destination": (logical_low - _origins[level]) / 2,
 		"source": Vector3i.ZERO,
@@ -329,10 +326,10 @@ func _update_dynamic_shapes() -> void:
 		_grid.insert(update.shape, update.bounds)
 	for key in plan.removals:
 		_grid.remove_id(key)
-	# Cada cosa que se mueve refresca SU caja, en los cuatro niveles. Antes se fusionaban todas en
-	# una sola region para que el coste fuera O(Shapes) y no O(Shapes x niveles); con el barrido de
-	# 10 ms por region eso tenia sentido, con la rejilla ya no, y la fusion a ciegas era ademas la
-	# mina: dos escombros en extremos opuestos daban una caja de 250 m, y eso son 106 s de raster.
+	# Each moving object refreshes ITS box at all four levels. They used to be merged into one region
+	# to make the cost O(Shapes) rather than O(Shapes x levels). That made sense when each scan took
+	# 10 ms; it no longer does with the grid, and blind merging was also disastrous: two debris piles
+	# at opposite ends produced a 250 m box, requiring 106 s of rasterization.
 	for region in plan.dirty:
 		for level in LEVELS:
 			_refresh_world_aabb(level, region)
@@ -359,13 +356,13 @@ func _on_voxels_changed(
 			local_high.z if corner & 4 else local_low.z
 		)
 		changed = changed.expand(point)
-	# El nivel 0 sigue al crater en el acto. Los tres gruesos se acumulan y se consumen uno por
-	# frame, para no meter cuatro subidas al driver en el mismo intervalo de presentacion.
+	# Level 0 follows the crater immediately. Queue the three coarser levels and process one per
+	# frame to avoid four driver uploads in the same presentation interval.
 	_refresh_world_aabb(0, changed.grow(_cell_size(0)))
 	for level in range(1, LEVELS):
-		# Fusionar a ciegas es la mina de siempre: una bomba que muerde cosas separadas 50 m daba una
-		# sola caja de 50 m y rasterizarla son los picos de 120 ms. Se acumulan cajas sueltas y solo
-		# se juntan las que siguen cabiendo en `MERGE_MAX_SIDE`.
+		# Blind merging is still disastrous: a bomb hitting objects 50 m apart produced one 50 m box,
+		# whose rasterization caused 120 ms spikes. Keep separate boxes and merge only those that
+		# remain within `MERGE_MAX_SIDE`.
 		var pending: Array[AABB] = _pending_damage_regions[level]
 		pending.append(changed.grow(_cell_size(level)))
 		_pending_damage_regions[level] = _coalesce(pending)
@@ -382,8 +379,8 @@ func _flush_pending_damage_level() -> void:
 		var pending: Array[AABB] = _pending_damage_regions[level]
 		if pending.is_empty():
 			continue
-		# Una caja por frame y nivel. El crater ya se ve al instante en el nivel 0; los gruesos solo
-		# dan la sombra lejana y pueden ir un par de frames por detras sin que se note.
+		# One box per frame and level. The crater is immediately visible at level 0; the coarser
+		# levels provide distant shadows and can lag by a couple of frames without being noticed.
 		_refresh_world_aabb(level, pending.pop_back())
 		break
 
@@ -401,8 +398,8 @@ func _refresh_world_aabb(level: int, world_region: AABB) -> void:
 		ceili(high_position.y / cell_size),
 		ceili(high_position.z / cell_size)
 	)
-	# Las subidas de bytes empaquetados empiezan y acaban en frontera de dos celdas, y ademas
-	# alineadas con el origen del volumen para que el destino salga en texeles enteros.
+	# Packed-byte uploads start and end on two-cell boundaries, also aligned with the volume origin
+	# so the destination uses whole texels.
 	var origin := _origins[level]
 	low = origin + Vector3i(
 		floori((low.x - origin.x) / 2.0) * 2,
@@ -421,16 +418,16 @@ func _refresh_world_aabb(level: int, world_region: AABB) -> void:
 	_refresh_world_cell_region(level, AABB(Vector3(low), Vector3(high - low)))
 
 
-## Junta cajas solo mientras el resultado siga siendo pequeno. El limite sale de la medida: una
-## region de 4 m cuesta 0,36 ms de raster y una de 16 m ya cuesta 7 ms, porque el bucle recorre los
-## voxeles de origen que caen dentro. Antes se fusionaba todo sin mirar, y dos escombros en extremos
-## opuestos del mapa daban una caja de 250 m — 106 s en un frame.
+## Merge boxes only while the result remains small. The measured limit is based on cost: a 4 m
+## region takes 0.36 ms to rasterize, while a 16 m region takes 7 ms because the loop visits source
+## voxels inside it. Previously everything was merged blindly, so two debris piles at opposite
+## ends of the map produced a 250 m box—106 s in one frame.
 const MERGE_MAX_SIDE := 8.0
 
 
 func _coalesce(regions: Array[AABB]) -> Array[AABB]:
-	# El planificador nativo devuelve un `Array` suelto: guardarlo tal cual dejaba el hueco sin tipo
-	# y el siguiente `_flush_pending_damage_level` reventaba al releerlo.
+	# The native planner returns an untyped `Array`; storing it directly left the slot untyped and
+	# the next `_flush_pending_damage_level` failed when reading it.
 	var merged: Array[AABB] = []
 	merged.assign(_update_planner.coalesce(regions, MERGE_MAX_SIDE))
 	return merged
@@ -440,7 +437,7 @@ func _cell_size(level: int) -> float:
 	return _base_cell_size * float(1 << level)
 
 
-## Solo lo que puede haberse movido desde el frame anterior.
+## Only Shapes that may have moved since the previous frame.
 func _movable_shapes() -> Array[VoxelShape3D]:
 	var result: Array[VoxelShape3D] = []
 	_movable_bounds.clear()
@@ -458,10 +455,10 @@ func _movable_shapes() -> Array[VoxelShape3D]:
 	return result
 
 
-## Se llama varias veces por frame desde el refresco de regiones. Dentro de un frame la lista no
-## cambia, asi que se calcula una vez.
-## Una Shape que nace a mitad de frame entra en el volumen al frame siguiente. El resultado es un
-## frame de latencia en la sombra, no un hueco permanente.
+## Called several times per frame during region refresh. The list does not change within a frame, so
+## compute it only once.
+## A Shape created halfway through a frame enters the volume on the next frame. This produces one
+## frame of shadow latency, not a permanent gap.
 func _all_shapes() -> Array[VoxelShape3D]:
 	var frame := Engine.get_process_frames()
 	if frame == _shape_cache_frame:

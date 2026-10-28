@@ -1,5 +1,5 @@
 extends SceneTree
-## Contratos mínimos de los servicios C++ extraídos de los cinco hot paths GDScript.
+## Minimal contracts for the C++ services extracted from the five GDScript hot paths.
 
 class FakeBody:
 	extends Node

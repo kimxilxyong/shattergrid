@@ -1,12 +1,10 @@
 class_name GameHud
 extends CanvasLayer
-## Contador de estado del mundo. Es el unico que decide cada cuanto se remuestrea cada metrica: el
-## texto se repinta a 4 Hz, el censo de coherencia del renderer va a 1 Hz y el recuento de voxeles a
-## 0,5 Hz, porque los tres cuestan ordenes de magnitud distintos y remuestrearlos todos al ritmo del
-## mas barato fabricaba picos de CPU.
+## World status display. This class decides how often each metric is resampled: text refreshes at
+## 4 Hz, the renderer coherence audit at 1 Hz, and the voxel count at 0.5 Hz. Their costs differ by
+## orders of magnitude, so sampling all of them at the cheapest metric's rate caused CPU spikes.
 
-## Cada cuanto se repinta el texto, se rehace el censo del renderer, se recuenta el mundo entero y se
-## imprime la linea PERF, en segundos.
+## Time in seconds between text refreshes, renderer audits, full world recounts, and PERF log lines.
 const REFRESH_PERIOD := 0.25
 const RENDER_AUDIT_PERIOD := 1.0
 const RECOUNT_PERIOD := 2.0
@@ -26,8 +24,8 @@ var _cached_render_audit := {}
 var _cached_voxel_total := 0
 
 
-## `renderer` puede llegar nulo: el HUD arranca antes que el renderer y sigue midiendo el mundo sin
-## el, solo se calla la linea de coherencia.
+## `renderer` may be null: the HUD starts before the renderer and continues measuring the world,
+## omitting only the coherence line.
 func setup(world: VoxelWorld3D, renderer: VoxelRenderSystem, player: Node3D, camera: Camera3D) -> void:
 	_world = world
 	_renderer = renderer
@@ -39,7 +37,7 @@ func setup(world: VoxelWorld3D, renderer: VoxelRenderSystem, player: Node3D, cam
 	refresh()
 
 
-## Marca de agua en pantalla mientras el mapa importado este cargado.
+## On-screen watermark while an imported map is loaded.
 func show_watermark(text: String) -> void:
 	var label := Label.new()
 	label.text = text
@@ -58,8 +56,8 @@ func refresh() -> void:
 	var metrics := _world.get_metrics()
 	var viewport_rid := get_viewport().get_viewport_rid()
 	var fps := Engine.get_frames_per_second()
-	_counter.text = ("%d voxeles · %d Bodies despiertos · %d cajas activas (%d total) · %d fps\n"
-		+ "frame %.1f ms · física %.1f ms · GPU %.1f ms · CPU render %.1f ms · cables %d activos/%d tirando") % [
+	_counter.text = ("%d voxels · %d awake Bodies · %d active boxes (%d total) · %d fps\n"
+		+ "frame %.1f ms · physics %.1f ms · GPU %.1f ms · render CPU %.1f ms · ropes %d active/%d under tension") % [
 		_cached_voxel_total,
 		int(metrics.awake_bodies),
 		int(metrics.awake_compound_boxes),
@@ -109,13 +107,13 @@ func _process(delta: float) -> void:
 		_cached_voxel_total = _total_voxel_count()
 
 
-## Traza a consola el reparto del coste por frame. Va aparte del contador porque interesa releerla
-## despues de una sesion, no mirarla en vivo.
+## Log the per-frame cost breakdown to the console. This is separate from the counter because it is
+## useful to review after a session rather than watch live.
 func _log_perf() -> void:
 	var rid := get_viewport().get_viewport_rid()
 	var clip := _renderer.shadow_clipmaps if _renderer != null else null
-	print(("PERF fps=%.0f gpu=%.2f cpu_render=%.2f | clipmap raster=%.2f subir=%.2f"
-		+ " dinamico=%.2f | despiertos=%d cables=%d/%d") % [
+	print(("PERF fps=%.0f gpu=%.2f cpu_render=%.2f | clipmap raster=%.2f upload=%.2f"
+		+ " dynamic=%.2f | awake=%d ropes=%d/%d") % [
 		Engine.get_frames_per_second(),
 		RenderingServer.viewport_get_measured_render_time_gpu(rid),
 		RenderingServer.viewport_get_measured_render_time_cpu(rid)
@@ -128,9 +126,9 @@ func _log_perf() -> void:
 	])
 
 
-## Dice que hay bajo la mira: el cuerpo fisico que devuelve Jolt y, aparte, si ahi hay voxeles de
-## verdad. Sirve para separar las dos causas de una mancha rara: si Jolt golpea pero no hay voxeles,
-## es un collider suelto; si hay voxeles pero Jolt no golpea, es geometria que se dibuja mal.
+## Report what is under the crosshair: the physics body returned by Jolt and whether actual voxels
+## are present there. This distinguishes two causes of visual artifacts: a Jolt hit without voxels
+## indicates a stray collider; voxels without a Jolt hit indicate incorrectly rendered geometry.
 func _probe_under_crosshair() -> String:
 	var from := _camera.global_position
 	var to := from - _camera.global_basis.z * 60.0
@@ -138,14 +136,14 @@ func _probe_under_crosshair() -> String:
 	query.exclude = [(_player as CollisionObject3D).get_rid()]
 	var hit := _camera.get_world_3d().direct_space_state.intersect_ray(query)
 	if hit.is_empty():
-		return "mira: nada a 60 m · pos %.1f %.1f %.1f" % [from.x, from.y, from.z]
+		return "crosshair: nothing within 60 m · pos %.1f %.1f %.1f" % [from.x, from.y, from.z]
 	var collider: Node = hit.collider
 	var owner_name := collider.name
 	var parent := collider.get_parent()
 	if parent != null:
 		owner_name = "%s/%s" % [parent.name, owner_name]
 	var point: Vector3 = hit.position
-	return "mira: %s a %.1f m · punto %.1f %.1f %.1f · pos %.1f %.1f %.1f" % [
+	return "crosshair: %s at %.1f m · point %.1f %.1f %.1f · pos %.1f %.1f %.1f" % [
 		owner_name, from.distance_to(point), point.x, point.y, point.z, from.x, from.y, from.z
 	]
 

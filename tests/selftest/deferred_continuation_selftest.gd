@@ -1,13 +1,13 @@
 extends "res://tests/selftest/selftest.gd"
-## La cola de fragmentos: un disparo que parte algo en muchos trozos no puede crear todos los
-## RigidBody en el mismo frame -medido en Lee, ocho con su compound son 37 ms, mas del doble del
-## presupuesto a 60 fps-, asi que se crean unos cuantos y el resto espera turno.
+## Fragment queue: a shot that breaks something into many pieces cannot create every RigidBody in
+## the same frame—eight with their compound shapes take 37 ms on Lee, over twice the 60 FPS
+## budget—so only a few are created at a time and the rest wait their turn.
 ##
-## Dos regresiones sobre esa cola:
-## - El techo suspendido: la continuación toca el cuarto componente, que necesariamente pasa por la
-##   cola. Antes esa cola creaba el RigidBody pero omitía la propagación de soporte que sí
-##   ejecutaban los tres fragmentos inmediatos.
-## - El reparto no puede perder trozos: los mismos que antes, repartidos en varios frames.
+## Two regressions for this queue:
+## - Suspended roof: the continuation reaches the fourth component, which must go through the queue.
+##   The queue used to create its RigidBody but skip the support propagation performed for the
+##   three immediate fragments.
+## - Piece distribution must not lose fragments: all the same pieces, spread across several frames.
 
 
 func _shape_body(world: VoxelWorld3D, dimensions: Vector3i, cells: PackedByteArray,
@@ -29,7 +29,7 @@ func _shape_body(world: VoxelWorld3D, dimensions: Vector3i, cells: PackedByteArr
 
 
 func _run() -> void:
-	print("continuación estática en fragmento diferido")
+	print("static continuation in a deferred fragment")
 	var world := make_world()
 
 	var dimensions := Vector3i(32, 4, 4)
@@ -38,8 +38,8 @@ func _run() -> void:
 	cells.fill(0)
 	var put := func(x: int, y: int, z: int) -> void:
 		cells[x + y * dimensions.x + z * dimensions.x * dimensions.y] = 1
-	# Base anclada y cuatro componentes de 32 voxeles, por encima del límite cosmético. El cuarto
-	# es x=20 y por eso debe pasar por la cola de Bodies diferidos.
+	# Anchored base and four 32-voxel components, above the cosmetic limit. The fourth is at x=20,
+	# so it must go through the deferred Body queue.
 	for x in range(0, 3):
 		for y in 2:
 			for z in 2:
@@ -49,7 +49,7 @@ func _run() -> void:
 			for y in 4:
 				for z in 4:
 					put.call(x, y, z)
-	put.call(30, 1, 1) # voxel sacrificial que dispara la clasificación
+	put.call(30, 1, 1) # sacrificial voxel that triggers classification
 	var source := _shape_body(world, dimensions, cells)
 	var source_shape := source.get_shapes()[0]
 	source_shape.anchored = true
@@ -69,26 +69,26 @@ func _run() -> void:
 	), 0.075, 100.0)
 	var immediate: Array = damage[0].new_bodies if not damage.is_empty() else []
 	_check(immediate.size() == VoxelWorld3D.FRAGMENTS_PER_FRAME,
-		"los primeros %d componentes se crean en el frame del impacto" \
+		"the first %d components are created in the impact frame" \
 			% VoxelWorld3D.FRAGMENTS_PER_FRAME)
 	_check(world._body_of(roof_shape) == roof,
-		"el techo que toca el cuarto componente aún espera su fragmento")
+		"the roof touching the fourth component is still waiting for its fragment")
 
 	for _frame in 16:
 		await physics_frame
 		world._process(1.0 / 60.0)
 	var roof_owner := world._body_of(roof_shape)
 	_check(roof_owner != null and roof_owner != roof,
-		"la ruta diferida transfiere la continuación estática")
+		"the deferred path transfers the static continuation")
 	_check(roof_owner != null and roof_owner.state == VoxelBody3D.State.DYNAMIC,
-		"el techo termina en un Body dinámico")
-	_check(world._pending_fragments.is_empty(), "la cola de fragmentos queda drenada")
+		"the roof ends up in a dynamic Body")
+	_check(world._pending_fragments.is_empty(), "the fragment queue is drained")
 	_check(world.get_metrics().pending_collision_handoffs == 0,
-		"el handoff de colisión también queda drenado")
+		"the collision handoff is also drained")
 
-	# Reparto sin perdidas: un nucleo macizo con una cola fina y ocho islas de 32 voxeles alrededor.
-	# Al cortar la cola se sueltan tambien las islas cercanas: nueve trozos de golpe, y todos tienen
-	# que acabar existiendo aunque el frame del disparo solo pueda crear FRAGMENTS_PER_FRAME.
+	# Lossless distribution: a solid core with a thin tail and eight 32-voxel islands around it.
+	# Cutting the tail also releases the nearby islands: nine pieces at once, all of which must
+	# eventually exist even though the shot frame can create only FRAGMENTS_PER_FRAME.
 	var world_budget := make_world()
 	var budget_dimensions := Vector3i(25, 3, 25)
 	var budget_cells := PackedByteArray()
@@ -112,8 +112,8 @@ func _run() -> void:
 			for y in 2:
 				for z in range(corner.y, corner.y + 8):
 					put_budget.call(x, y, z)
-	# Dureza alta y energia baja: el crater es de un voxel, asi que corta la cola y no toca las islas,
-	# pero el radio -que es lo que decide que trozos cuentan como "cerca"- sigue siendo grande.
+	# High hardness and low energy: the crater is one voxel wide, so it cuts the tail without touching
+	# the islands, but the radius—which determines which pieces count as "nearby"—remains large.
 	var chunk := _shape_body(world_budget, budget_dimensions, budget_cells, Vector3.ZERO, 20.0)
 	var chunk_shape := chunk.get_shapes()[0]
 	for _frame in 4:
@@ -125,16 +125,16 @@ func _run() -> void:
 	for entry: Dictionary in world_budget.damage_sphere(crater, 1.0, 2.0):
 		spawned += (entry.new_bodies as Array).size()
 	_check(spawned > 0 and spawned <= VoxelWorld3D.FRAGMENTS_PER_FRAME,
-		"el frame del disparo no crea mas de %d cuerpos" % VoxelWorld3D.FRAGMENTS_PER_FRAME)
+		"the shot frame creates no more than %d bodies" % VoxelWorld3D.FRAGMENTS_PER_FRAME)
 	for _frame in 12:
 		await physics_frame
 		world_budget._process(1.0 / 60.0)
 	var total := world_budget.get_dynamic_bodies().size()
-	print("  reparto: %d en el frame del disparo, %d tras vaciar la cola (islas sueltas: %d)" % [
+	print("  distribution: %d in the shot frame, %d after draining the queue (loose islands: %d)" % [
 		spawned, total, islands,
 	])
-	_check(total > spawned, "los trozos que faltaban llegan en los frames siguientes")
-	_check(total >= islands, "no se pierde ningun trozo por el camino (%d de %d)" % [total, islands])
+	_check(total > spawned, "the remaining pieces arrive in subsequent frames")
+	_check(total >= islands, "no pieces are lost along the way (%d of %d)" % [total, islands])
 
 	if failures == 0:
 		print("VOXEL_DEFERRED_CONTINUATION_SELFTEST_OK")

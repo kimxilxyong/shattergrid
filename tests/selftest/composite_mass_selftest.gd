@@ -1,6 +1,6 @@
 extends SceneTree
-## La inercia de un Body multi-Shape debe incluir orientación y distancia al centro de masa. Sumar
-## solo las inercias intrínsecas hacía que una torre o tubería larga girase como un cubo compacto.
+## The inertia of a multi-Shape Body must include orientation and distance from the center of mass.
+## Summing only intrinsic inertia made a tower or long pipe rotate like a compact cube.
 
 
 func _init() -> void:

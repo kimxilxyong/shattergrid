@@ -1,9 +1,9 @@
 extends SceneTree
-## Describe los cuerpos que rodean un punto del mapa y compara su volumen visible con su colisión.
+## Describe bodies around a point on the map and compare visible volume with collision volume.
 ##
-## Cuando el HUD acusa a un cuerpo concreto de frenar al jugador, esto dice qué es realmente: dónde
-## está, cuánto ocupa, cuántos voxeles tiene dentro y si su caja de colisión coincide con lo que se
-## dibuja. Un cuerpo casi vacío con una caja grande es exactamente el "muro invisible".
+## When the HUD identifies a specific body as blocking the player, this reports what it actually
+## is: its location, size, voxel count, and whether its collision box matches what is rendered.
+## A nearly empty body with a large collision box is exactly an "invisible wall."
 
 var MAP := VoxelProjectPaths.teardown_map_path()
 const PUNTO := Vector3(-5.2, 1.2, -2.7)
@@ -32,7 +32,7 @@ func _init() -> void:
 			celdas += cells.x * cells.y * cells.z
 		if primero or not total.grow(RADIO).has_point(PUNTO):
 			continue
-		print("%-16s  tam=%5.1f x %5.1f x %5.1f  centro=%s  y=[%.1f .. %.1f]  llenado=%.1f%%  colisiona=%s  estado=%d"
+		print("%-16s  size=%5.1f x %5.1f x %5.1f  center=%s  y=[%.1f .. %.1f]  fill=%.1f%%  collidable=%s  state=%d"
 			% [body.name, total.size.x, total.size.y, total.size.z, str(total.get_center()),
 				total.position.y, total.end.y, 100.0 * voxeles / maxi(1, celdas),
 				(body as VoxelBody3D).collision_enabled, (body as VoxelBody3D).state])

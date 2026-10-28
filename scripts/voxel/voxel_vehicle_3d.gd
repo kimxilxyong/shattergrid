@@ -1,10 +1,10 @@
 class_name VoxelVehicle3D
 extends VehicleBody3D
-## Vehiculo conducible construido directamente desde un `<vehicle>` de Teardown.
+## Drivable vehicle built directly from a Teardown `<vehicle>`.
 ##
-## La carroceria sigue perteneciendo a VoxelBody3D, de modo que conserva masa voxel, destruccion,
-## agua y danos por impacto. Las ruedas son los raycasts de VehicleWheel3D: cuatro constraints
-## baratos en un unico Body, no cuatro RigidBodies y joints adicionales por coche.
+## The chassis remains part of VoxelBody3D, preserving voxel mass, destruction, water interaction,
+## and impact damage. Wheels use VehicleWheel3D raycasts: four inexpensive constraints in one Body,
+## not four RigidBodies and extra joints per car.
 
 signal driver_changed(vehicle: VoxelVehicle3D, occupied: bool)
 signal flooded(vehicle: VoxelVehicle3D)
@@ -17,26 +17,26 @@ const MAX_REVERSE_LIGHTS := 2
 const IMPACT_MIN_IMPULSE := 24.0
 const IMPACT_MIN_SPEED := 2.6
 const IMPACT_COOLDOWN_FRAMES := 12
-## La carroceria del SUV de Lee producía 42 subshapes. Con CCD permanente contra los BVH estáticos,
-## eso elevó el paso físico medido hasta 41,5 ms aun después de detenerse contra un obstáculo.
+## The Lee SUV chassis produced 42 subshapes. With permanent CCD against static BVHs, this raised
+## the measured physics step to 41.5 ms even after stopping against an obstacle.
 const COLLISION_BOX_BUDGET := 16
 const CCD_MIN_SPEED := 14.0
-## La ocupación de sombra de carrocería+ruedas se recocina a 10 Hz. La geometría visible conserva
-## interpolación por frame; bajar esta tarea CPU de 15 a 10 Hz recorta un tercio de su coste medio.
+## The chassis-and-wheel shadow occupancy is rebaked at 10 Hz. Visible geometry retains per-frame
+## interpolation; reducing this CPU task from 15 to 10 Hz cuts its average cost by one third.
 const SHADOW_UPDATE_INTERVAL_FRAMES := 6
 const FLOOD_SUBMERSION_RATIO := 0.58
 const FLOOD_SEAT_MARGIN := 0.12
 
 var voxel_owner: VoxelBody3D
-var display_name := "vehiculo"
+var display_name := "vehicle"
 var max_speed_kmh := 80.0
 var acceleration := 4.0
-## Resistencia authored por `<vehicle strength="…">`. Ademas de describir la robustez del coche,
-## acota el perfil de apertura que necesita su frontal para no detenerse contra una pared blanda de
-## 10 cm como si fuese hormigon. No sustituye la energia del choque ni perfora materiales duros.
+## Resistance authored by `<vehicle strength="…">`. Besides describing the car's durability, it
+## limits the opening profile needed by its front so it does not stop against a soft 10 cm wall as
+## if it were concrete. It does not replace collision energy or pierce hard materials.
 var impact_strength := 4.0
-## Radio frontal opcional para vehículos que no caben por el hueco de un coche (p. ej. un tanque).
-## Un valor negativo conserva la curva automática basada en velocidad y `strength`.
+## Optional frontal radius for vehicles that do not fit through a car-sized opening (e.g. a tank).
+## A negative value retains the automatic curve based on speed and `strength`.
 var impact_radius := -1.0
 var max_steer := 0.46
 var min_steer := 0.12
@@ -72,8 +72,8 @@ func configure(owner: VoxelBody3D, descriptor: Dictionary) -> void:
 	add_to_group(GROUP)
 	contact_monitor = true
 	max_contacts_reported = 8
-	# CCD es una capacidad del vehículo, no un estado permanente; `VoxelBody3D` lo enciende cuando
-	# recorre más que el grosor de una pared delgada por varios ticks.
+	# CCD is a vehicle capability, not a permanent state; `VoxelBody3D` enables it when the vehicle
+	# travels farther than the thickness of a thin wall for several ticks.
 	continuous_cd = false
 	if not sleeping_state_changed.is_connected(_on_sleeping_state_changed):
 		sleeping_state_changed.connect(_on_sleeping_state_changed)
@@ -91,9 +91,9 @@ func configure(owner: VoxelBody3D, descriptor: Dictionary) -> void:
 	var steer_assist := clampf(float(attributes.get("steerassist", 0.15)), 0.0, 1.0)
 	steer_speed = lerpf(3.4, 6.2, steer_assist)
 	_visual_body = descriptor.get("visual_body") as VoxelBody3D
-	# La transformada visible sigue subiendo cada frame. Solo la ocupación de sombra volumétrica se
-	# actualiza a 10 Hz: rasterizar carrocería+ruedas en los cuatro niveles medía 5,7 ms por refresco.
-	# Ambos Bodies comparten fase para que sus cinco cajas se fusionen en una sola región pequeña.
+	# The visible transform still updates every frame. Only volumetric shadow occupancy updates at
+	# 10 Hz: rasterizing the chassis and wheels at all four levels took 5.7 ms per refresh.
+	# Both Bodies share a phase so their five boxes merge into one small region.
 	var shadow_phase := get_instance_id() % SHADOW_UPDATE_INTERVAL_FRAMES
 	voxel_owner.set_meta("voxel_shadow_interval_frames", SHADOW_UPDATE_INTERVAL_FRAMES)
 	voxel_owner.set_meta("voxel_shadow_phase", shadow_phase)
@@ -104,13 +104,13 @@ func configure(owner: VoxelBody3D, descriptor: Dictionary) -> void:
 	if seat_transform != Transform3D.IDENTITY:
 		_seat_local = global_transform.affine_inverse() * seat_transform.origin
 	_create_wheels(descriptor)
-	# Este Body no participa en fisica: solo conserva el ownership de los voxeles de rueda. Marcarlo
-	# explicitamente evita el fallo en que sus Shapes desaparecian del seguimiento al congelarlo.
+	# This Body does not participate in physics; it only owns the wheel voxels. Marking it explicitly
+	# avoids the bug where its Shapes disappeared from tracking when frozen.
 	var world := voxel_owner.get_parent() as VoxelWorld3D
 	if world != null and _visual_body != null and is_instance_valid(_visual_body):
 		world.track_external_body_transforms(_visual_body)
-	# Coloca los visuales una vez incluso si el vehiculo se importo ya dormido. Sin este primer pase,
-	# las ruedas quedaban en la transformada authored anterior al recentrado del VehicleBody.
+	# Place the visuals once even if the vehicle was imported asleep. Without this initial pass, the
+	# wheels remained at their authored transforms from before the VehicleBody was recentered.
 	_sync_wheel_visuals(true)
 	_create_lights(descriptor.get("lights", []))
 	_retune_for_mass(true)
@@ -135,8 +135,8 @@ func _create_wheels(descriptor: Dictionary) -> void:
 		var source_transform: Transform3D = record.get("transform", global_transform)
 		var local_position := global_transform.affine_inverse() * source_transform.origin
 		var visual_shapes: Array = record.get("shapes", [])
-		# Un vehículo puede declarar el radio: en un tanque el rodillo dibujado no toca el suelo, lo
-		# hace la banda, y el raycast tiene que llegar más abajo que el disco.
+		# A vehicle can declare its radius: on a tank, the rendered road wheel does not touch the
+		# ground; the track does, so the raycast must extend below the disc.
 		var radius := float((record.attributes as Dictionary).get("radius", 0.0))
 		if radius <= 0.0:
 			radius = _wheel_radius(visual_shapes)
@@ -158,10 +158,10 @@ func _create_wheels(descriptor: Dictionary) -> void:
 		wheel.wheel_roll_influence = lerpf(0.48, 0.24, antiroll)
 		add_child(wheel)
 		_wheels.append(wheel)
-		# VehicleWheel3D necesita la base del chasis para que traccion/direccion apunten correctamente,
-		# mientras que la Shape puede traer espejo/rotacion authored propios (por ejemplo un tapacubo en
-		# una sola cara). El offset visual se mide contra la pose fisica inicial, no contra el XML: asi
-		# el primer sync es identidad y los cambios posteriores de rueda se aplican como delta.
+		# VehicleWheel3D needs the chassis basis so traction and steering point correctly, while the
+		# Shape may have its own authored mirror/rotation (for example, a hubcap on one face only).
+		# Measure the visual offset from the initial physics pose, not the XML: the first sync is then
+		# an identity transform and later wheel changes apply as deltas.
 		var physical_rest_transform := wheel.global_transform
 		for shape_variant: Variant in visual_shapes:
 			var shape := shape_variant as VoxelShape3D
@@ -173,18 +173,19 @@ func _create_wheels(descriptor: Dictionary) -> void:
 				"shape": shape,
 				"local": physical_rest_transform.affine_inverse() * shape.global_transform,
 			})
-	# Algunos mods no escriben `drive`. Un coche sin rueda motriz parece roto aunque su XML solo sea
-	# incompleto; se adopta traccion trasera, sin inventar ruedas ni hacer conducible un `nodrive`.
+	# Some mods omit `drive`. A car with no drive wheels looks broken even if its XML is merely
+	# incomplete; default to rear-wheel drive without inventing wheels or making a `nodrive` vehicle
+	# drivable.
 	if not _wheels.any(func(candidate: VehicleWheel3D) -> bool: return candidate.use_as_traction):
 		for wheel in _wheels:
 			wheel.use_as_traction = wheel.position.z < 0.0
 
 
-## Los `.vox` de rueda de Teardown suelen modelar llanta/tapacubo solo en una de las dos caras.
-## Los objetos izquierdo y derecho ya vienen espejados en celdas, pero la conversion de ejes puede
-## dejar esa cara mirando al centro del coche. Se elige la cara con mas materiales/detalle y, solo
-## si apunta hacia dentro, se gira el visual 180° alrededor de su Y local. No toca VehicleWheel3D:
-## suspension, traccion y direccion conservan los ejes que espera Jolt.
+## Teardown wheel `.vox` files often model the tire/hubcap on only one face. The left and right
+## objects are already mirrored in their cells, but axis conversion can leave that face pointing
+## toward the center of the car. Choose the face with more materials/detail and rotate the visual
+## 180° around its local Y only if it points inward. VehicleWheel3D is untouched: suspension,
+## traction, and steering retain the axes expected by Jolt.
 func _orient_wheel_face_outward(shape: VoxelShape3D, wheel: VehicleWheel3D) -> void:
 	var detail_face := _wheel_detail_face(shape)
 	if detail_face == 0 or is_zero_approx(wheel.position.x):
@@ -196,7 +197,7 @@ func _orient_wheel_face_outward(shape: VoxelShape3D, wheel: VehicleWheel3D) -> v
 	shape.global_basis = shape.global_basis * Basis(Vector3.UP, PI)
 
 
-## -1: cara x minima; +1: cara x maxima; 0: ambas tienen el mismo detalle.
+## -1: minimum x face; +1: maximum x face; 0: both faces have the same detail.
 static func _wheel_detail_face(shape: VoxelShape3D) -> int:
 	if shape == null or shape.data == null:
 		return 0
@@ -224,7 +225,7 @@ static func _wheel_detail_face(shape: VoxelShape3D) -> int:
 	return -1 if low_score > high_score else (1 if high_score > low_score else 0)
 
 
-## Auditoria barata de importacion, usada por la regresion del mapa real.
+## Lightweight import audit, used by the real-map regression test.
 func wheel_visual_faces_outward() -> bool:
 	for record: Dictionary in _wheel_visuals:
 		var wheel := record.get("wheel") as VehicleWheel3D
@@ -279,7 +280,7 @@ func _create_lights(records: Array) -> void:
 
 func _setup_projected_light(light: Light3D, source_transform: Transform3D, cone: bool) -> void:
 	add_child(light)
-	# Teardown dirige los conos sobre +Z; SpotLight3D ilumina sobre -Z.
+	# Teardown points cones along +Z; SpotLight3D shines along -Z.
 	light.global_transform = source_transform * Transform3D(
 		Basis(Quaternion(Vector3.UP, PI)) if cone else Basis.IDENTITY, Vector3.ZERO
 	)
@@ -396,21 +397,21 @@ func get_camera_target() -> Vector3:
 	return get_seat_position() + Vector3.UP * 0.35
 
 
-## La cámara y el renderer DDA viven en el reloj de dibujado. Godot interpola el VehicleBody para
-## dibujarlo, pero consultar `global_transform` desde `_process` devuelve el último tick físico y
-## vuelve a introducir el escalonado que la interpolación intenta eliminar. Estas variantes reciben
-## una única muestra interpolada y derivan de ella todos los puntos de cámara coherentemente.
+## The camera and DDA renderer run on the render clock. Godot interpolates the VehicleBody for
+## rendering, but querying `global_transform` from `_process` returns the latest physics tick and
+## reintroduces the stepping that interpolation is meant to remove. These variants receive one
+## interpolated sample and derive all camera points from it consistently.
 ##
-## Pivote de la cámara orbital: descarta el roll y el pitch del chasis y conserva solo el yaw. El
-## asiento sigue girando con el vehículo, pero un bache que balancea el casco ya no traslada el punto
-## sobre el que orbita la vista. Ese balanceo era el temblor que hacía imposible apuntar, y entraba
-## por la posición aunque la dirección de mira no se suavizara.
+## Orbit-camera pivot: discard chassis roll and pitch, keeping only yaw. The seat still rotates with
+## the vehicle, but a bump that rocks the chassis no longer moves the point around which the view
+## orbits. That rocking caused the shake that made aiming impossible, affecting position even when
+## aim direction was not smoothed.
 func get_camera_pivot(vehicle_transform: Transform3D) -> Vector3:
 	var forward := vehicle_transform.basis.z
 	forward.y = 0.0
 	if forward.length_squared() < 0.0001:
-		# Casco volcado sobre el morro: el eje Z no proyecta en el plano y hay que caer a otro eje
-		# antes de normalizar un vector nulo.
+		# If the chassis is overturned onto its nose, the Z axis does not project onto the plane.
+		# Fall back to another axis before normalizing a zero vector.
 		forward = Vector3(vehicle_transform.basis.y.x, 0.0, vehicle_transform.basis.y.z)
 		if forward.length_squared() < 0.0001:
 			forward = Vector3.BACK
@@ -419,8 +420,8 @@ func get_camera_pivot(vehicle_transform: Transform3D) -> Vector3:
 
 
 func get_driver_view_position() -> Vector3:
-	# `player` ya suele estar a la altura de la cabeza en los XML de Teardown (1,25–2,2 m).
-	# Un pequeño avance evita z-fighting con el respaldo sin colocar la vista sobre el capot.
+	# In Teardown XML, `player` is usually at head height (1.25–2.2 m). A slight forward offset
+	# avoids z-fighting with the seatback without placing the view over the hood.
 	return get_seat_position() + forward_direction() * 0.08
 
 
@@ -437,9 +438,9 @@ func get_camera_collision_rids() -> Array[RID]:
 	return result
 
 
-## Todo lo que se mueve con el vehiculo: la carroceria mas lo que cuelgue de ella por joints -la
-## torreta de un tanque, un remolque-. La camara no debe chocar contra ellos ni el conductor salir
-## dentro de ellos.
+## Everything that moves with the vehicle: the chassis and anything attached by joints (such as a
+## tank turret or trailer). The camera must not collide with them, and the driver must not exit
+## inside them.
 func attached_bodies() -> Array[VoxelBody3D]:
 	var result: Array[VoxelBody3D] = []
 	if voxel_owner == null or not is_instance_valid(voxel_owner):
@@ -464,8 +465,8 @@ func _find_joints() -> VoxelJoints:
 	return null
 
 
-## Un mecanismo creado en runtime puede tener su propio registro aunque el mapa ya tenga otro.
-## Inyectarlo evita elegir por accidente el primer `VoxelJoints` del mundo.
+## A mechanism created at runtime can have its own registry even if the map already has one.
+## Injecting it prevents accidentally choosing the world's first `VoxelJoints`.
 func set_joint_registry(joints: VoxelJoints) -> void:
 	_joints = joints
 
@@ -478,8 +479,8 @@ func speed_kmh() -> float:
 	return linear_velocity.length() * 3.6
 
 
-## Entrada efectiva del tren motriz. Exponerla evita que un controlador especializado —las orugas
-## del tanque— vuelva a leer `Input` por su cuenta y permite probar el mismo camino con override.
+## Effective drivetrain input. Exposing it prevents specialized controllers (such as tank tracks)
+## from reading `Input` again on their own and allows the same path to be tested with overrides.
 func control_throttle_input() -> float:
 	if _control_override:
 		return _override_throttle
@@ -553,8 +554,8 @@ func park_after_sleep() -> void:
 	engine_force = 0.0
 	brake = coast_brake
 	_set_lights(false, false, false)
-	# `sleep()` cambia el estado antes de llamar aqui; se fuerza la ultima pose de suspension para que
-	# el coche no se aparque dejando sus ruedas un tick atras.
+	# `sleep()` changes the state before calling this; force the final suspension pose so the car
+	# does not park with its wheels one tick behind.
 	_sync_wheel_visuals(true)
 	set_physics_process(false)
 
@@ -598,14 +599,14 @@ func _physics_process(delta: float) -> void:
 
 
 func _on_sleeping_state_changed() -> void:
-	# Un coche estacionado no necesita ejecutar GDScript. Jolt lo vuelve a despertar por contacto y
-	# esta señal reactiva entonces el controlador/seguimiento visual sin polling global.
+	# A parked car does not need to run GDScript. Jolt wakes it on contact, and this signal then
+	# reactivates the controller/visual tracking without global polling.
 	set_physics_process(has_driver() or _control_override or not sleeping)
 
 
-## Un remolque authored es otro RigidBody unido al tractor por un joint. Al importar, ambos nacen
-## dormidos para no gastar solver; despertar solo el VehicleBody no garantiza que todos los backends
-## activen de inmediato el resto de la isla. El recorrido ocurre una sola vez al entrar, no por tick.
+## An authored trailer is another RigidBody joined to the tractor. Both start asleep on import to
+## save solver time; waking only the VehicleBody does not guarantee every backend immediately wakes
+## the rest of the island. Traverse it once on entry, not every tick.
 func _wake_attached_bodies() -> void:
 	if voxel_owner == null or not is_instance_valid(voxel_owner):
 		return
@@ -625,8 +626,8 @@ func _sync_wheel_visuals(force := false) -> void:
 	if not moving and not force:
 		return
 	for record: Dictionary in _wheel_visuals:
-		# Los visuales pertenecen al Body voxel y pueden salir de forma diferida durante teardown. Un
-		# cast tipado de un Object ya liberado falla antes de que `is_instance_valid` pueda protegerlo.
+		# Visuals belong to the voxel Body and may be freed later during teardown. A typed cast of an
+		# already freed Object fails before `is_instance_valid` can protect it.
 		var wheel_variant: Variant = record.get("wheel")
 		var shape_variant: Variant = record.get("shape")
 		if not is_instance_valid(wheel_variant) or not is_instance_valid(shape_variant):
@@ -662,8 +663,8 @@ func _apply_flooded_running_gear() -> void:
 	engine_force = 0.0
 	brake = 0.0
 	for wheel in _wheels:
-		# Un raycast de suspensión activo contra el lecho pelea con el peso y la flotación de una
-		# carrocería inundada. Sin fuerza ni agarre, el compound se apoya como cualquier RigidBody.
+		# An active suspension raycast against the seabed fights the weight and buoyancy of a flooded
+		# chassis. With no force or grip, the compound rests like any other RigidBody.
 		wheel.suspension_max_force = 0.0
 		wheel.wheel_friction_slip = 0.05
 
@@ -686,8 +687,8 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		var impulse := state.get_contact_impulse(index).length()
 		if impulse <= 0.0:
 			continue
-		# A pesar del nombre histórico, Godot documenta esta posición en coordenadas globales.
-		# Transformarla otra vez desplazaba el cráter lejos de un coche rotado/alejado del origen.
+		# Despite the historical name, Godot documents this position in global coordinates.
+		# Transforming it again moved the crater far from a rotated car away from the origin.
 		var point := state.get_contact_local_position(index)
 		var record: Dictionary = contacts.get(collider_id, {
 			"collider": collider, "impulse": 0.0, "speed": 0.0, "point": point,
@@ -710,14 +711,14 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		)
 
 
-## Solo la componente que cierra el contacto puede romper voxeles. Usar `velocity.length()` hacia
-## que un coche a 60 km/h sobre una carretera horizontal generase daño cada 12 frames aunque su
-## velocidad contra la normal del suelo fuese casi cero: esa cola de cráteres era la caída de FPS.
+## Only the component closing the contact can break voxels. Using `velocity.length()` meant a car
+## traveling at 60 km/h on a flat road dealt damage every 12 frames even when its velocity against
+## the ground normal was nearly zero; that trail of craters caused the FPS drop.
 static func contact_normal_speed(
 	relative_velocity: Vector3, contact_normal: Vector3
 ) -> float:
-	# En esta API "local" identifica el lado local del par de contacto; el vector ya comparte el
-	# marco global de las velocidades (igual que `get_contact_local_position`, documentada global).
+	# In this API, "local" identifies this body's side of the contact pair; the vector is already in
+	# the global velocity frame (like `get_contact_local_position`, which is documented as global).
 	return absf(relative_velocity.dot(contact_normal.normalized()))
 
 
@@ -755,4 +756,4 @@ static func _vehicle_name(tags: String, sound: String) -> String:
 		if candidate in tags.to_lower():
 			return candidate.to_upper() if candidate == "suv" else candidate
 	var clean := sound.get_slice(" ", 0).strip_edges()
-	return clean if not clean.is_empty() else "vehiculo"
+	return clean if not clean.is_empty() else "vehicle"

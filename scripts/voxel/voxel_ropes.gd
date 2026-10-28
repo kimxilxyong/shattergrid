@@ -1,7 +1,7 @@
 class_name VoxelRopes
 extends MeshInstance3D
-## Adaptador de escena para los módulos nativos de cable. Aquí queda ownership de anclajes y Nodes;
-## Verlet, restricciones, raycasts, tensión, fuerzas Jolt y preparación de malla viven en C++.
+## Scene adapter for native cable modules. Anchor and Node ownership remains here; Verlet
+## integration, constraints, raycasts, tension, Jolt forces, and mesh preparation live in C++.
 
 const SEGMENTS := 8
 const ITERATIONS := 6
@@ -23,7 +23,7 @@ const COLLISION_SKIN := 0.05
 const COLLISION_FRICTION := 0.5
 const DEAD_POINT := Vector3(0.0, -10_000.0, 0.0)
 
-## Solo metadatos de ownership. Los buffers de puntos y el estado físico no se duplican aquí.
+## Ownership metadata only. Point buffers and physics state are not duplicated here.
 var _spans: Array[Dictionary] = []
 var _solver := VoxelRopeSolver.new()
 var _physics_bridge := VoxelRopePhysicsBridge.new()

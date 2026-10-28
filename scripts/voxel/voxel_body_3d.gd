@@ -18,14 +18,14 @@ var structural := true
 var physics_persistent := false
 var physics_generation := 0
 var collision_handoff_pending := false
-## Solo los cuerpos que nacen de geometría estática necesitan CCD. Los 632 props authored dormidos
-## no pagan ese coste; postes, vigas y fragmentos largos sí evitan atravesar apoyos delgados.
+## Only bodies created from static geometry need CCD. The 632 authored props that start asleep do
+## not pay this cost; posts, beams, and long fragments still avoid passing through thin supports.
 var continuous_collision := false
-## Desactivable para medir el motor sin el coste de Jolt: las mallas cóncavas se llevan el 96 % del
-## tiempo de carga de un mapa grande, así que apagarlas aísla lo que cuesta todo lo demás.
+## Can be disabled to measure the engine without Jolt's cost: concave meshes account for 96% of a
+## large map's loading time, so disabling them isolates the cost of everything else.
 var collision_enabled := true
-## Una pieza móvil montada sobre un vehículo puede delegar su perfil de choque en la carrocería.
-## Así una torreta abre la pared con la fuerza del tanque sin dañarse a sí misma como prop suelto.
+## A moving part mounted on a vehicle can delegate its impact profile to the chassis. This lets a
+## turret break through a wall with the tank's force without damaging itself as a loose prop.
 var vehicle_impact_owner: VoxelBody3D
 var compound_boxes := 0
 var collision_rebuild_ms := 0.0
@@ -34,9 +34,9 @@ var last_interaction_msec := 0
 var _physics_body: PhysicsBody3D
 var _collision_nodes: Array[CollisionShape3D] = []
 var _macro_collisions := {}
-## La colisión estática se reparte en cuerpos de región. Un solo StaticBody con miles de Shapes
-## tiene una AABB del tamaño del terreno y obliga al narrowphase a probarlas todas contra una torre
-## que cae; los shards permiten que el broadphase descarte las regiones lejanas.
+## Static collision is divided into regional bodies. One StaticBody with thousands of Shapes has an
+## AABB the size of the terrain, forcing the narrowphase to test them all against a falling tower;
+## shards let the broadphase discard distant regions.
 var _static_collision_shards := {}
 var _pending_static_collisions: Array[Dictionary] = []
 var _pending_static_collision_keys := {}
@@ -85,8 +85,8 @@ func add_voxel_shape(
 		rebuild_static_collision(shape)
 
 
-## Saca una Shape del cuerpo sin destruirla, para pasarsela a otro. Es lo que necesita partir un
-## cuerpo cuyas Shapes han dejado de tocarse.
+## Removes a Shape from this Body without destroying it, so it can be transferred elsewhere. This
+## is needed to split a Body whose Shapes are no longer touching.
 func release_voxel_shape(shape: VoxelShape3D) -> void:
 	var listener := _on_shape_voxels_changed.bind(shape)
 	if shape.voxels_changed.is_connected(listener):
@@ -147,9 +147,9 @@ func is_awake() -> bool:
 		and not (_physics_body as RigidBody3D).sleeping
 
 
-## CCD por Shape compuesta es caro: barrer permanentemente las 29 cajas de la torre contra mallas
-## cóncavas regionales explica los picos bimodales de 7/26 ms. Postes, piezas pequeñas y cuerpos
-## rápidos lo conservan; una estructura grande que avanza menos de 23 cm por tick usa discreto.
+## CCD on a compound Shape is expensive: continuously sweeping the tower's 29 boxes against
+## regional concave meshes explains the bimodal 7/26 ms spikes. Posts, small parts, and fast bodies
+## retain it; a large structure moving less than 23 cm per tick uses discrete collision.
 func update_adaptive_ccd() -> void:
 	var rigid := _physics_body as RigidBody3D
 	if rigid == null:
@@ -166,16 +166,16 @@ func update_adaptive_ccd() -> void:
 		rigid.continuous_cd = needs_ccd
 
 
-## Duerme el cuerpo sin sacarlo de la simulación. Los props de Teardown nacen en reposo, y dormirlos
-## evita que Jolt resuelva 628 cuerpos durante los primeros segundos de partida; pero siguen siendo
-## cuerpos dinámicos de verdad, así que despiertan solos en cuanto algo los toca, tira de un joint o
-## les aplica una fuerza. Antes se usaba `freeze`, que es lo contrario: convierte el prop en estática
-## muerta que ni el jugador empujando ni una explosión al lado podían mover.
+## Puts the body to sleep without removing it from the simulation. Teardown props start at rest, and
+## sleeping them prevents Jolt from solving 628 bodies during the first seconds of play. They remain
+## real dynamic bodies and wake automatically when touched, pulled by a joint, or pushed by a force.
+## Previously, `freeze` was used instead; it does the opposite, turning the prop into dead static
+## geometry that neither the player nor a nearby explosion could move.
 func sleep() -> void:
 	if not _physics_body is RigidBody3D:
 		return
-	# Jolt ignora `sleeping` mientras el cuerpo no haya dado un paso por el espacio, asi que dormirlo
-	# en el mismo frame en que se crea no hace nada — medido: el prop se despertaba y caia igual.
+	# Jolt ignores `sleeping` until the body has taken a step in the space, so sleeping it in the
+	# frame it is created does nothing; measured result: the prop still woke up and fell.
 	if not is_inside_tree():
 		(_physics_body as RigidBody3D).sleeping = true
 		if _physics_body is VoxelVehicle3D:
@@ -188,14 +188,14 @@ func sleep() -> void:
 		(_physics_body as RigidBody3D).sleeping = true
 		if _physics_body is VoxelVehicle3D:
 			(_physics_body as VoxelVehicle3D).park_after_sleep()
-		# Jolt no garantiza `sleeping_state_changed` al asignar la propiedad desde script. Sin esta
-		# notificacion el registro conservaba los 632 props como despiertos, el presupuesto intentaba
-		# simplificarlos y esa reconstruccion los despertaba de verdad unos frames despues.
+		# Jolt does not guarantee `sleeping_state_changed` when the property is set from a script.
+		# Without this notification, the registry kept all 632 props marked awake, the budget tried
+		# to simplify them, and that rebuild actually woke them a few frames later.
 		runtime_state_changed.emit(self)
 
 
-## Despertar explícito para las interacciones que Jolt no ve venir: agarrar un objeto, abrir una
-## puerta, o revivir un cuerpo ya retirado a estática por el presupuesto.
+## Explicitly wake for interactions Jolt cannot anticipate: grabbing an object, opening a door, or
+## reactivating a body retired to static state by the physics budget.
 func wake_for_interaction() -> void:
 	if state == State.RETIRED_STATIC:
 		reactivate()
@@ -216,18 +216,18 @@ func get_physics_body() -> PhysicsBody3D:
 	return _physics_body
 
 
-## Promueve el RigidBody authored por `<vehicle>` antes de cocinar su compound. Las Shapes se
-## preservan en mundo al recentrar el Body en el marco del coche; así la dirección, la suspensión
-## y el centro de masa dejan de depender de que el mapa esté lejos del origen.
+## Promotes the RigidBody authored by `<vehicle>` before building its compound. Shapes are preserved
+## in world space while recentering the Body in the car's frame, so steering, suspension, and center
+## of mass no longer depend on the map being far from the origin.
 func configure_vehicle(descriptor: Dictionary) -> VoxelVehicle3D:
 	if state != State.DYNAMIC or descriptor.is_empty():
 		return null
-	# Un coche authored alcanza 20–50 m/s y debe barrer postes/paredes delgadas. Los estacionados
-	# duermen, así que habilitar CCD aquí solo tiene coste para los que realmente están circulando.
+	# An authored car reaches 20–50 m/s and must sweep against thin posts and walls. Parked cars sleep,
+	# so enabling CCD here costs only the vehicles that are actually moving.
 	continuous_collision = true
 	_vehicle_descriptor = descriptor
-	# Quien llegue aqui con el compound ya cocinado lo pierde en el reemplazo del Body y se queda
-	# sin colision: el importador cocina despues, pero un cuerpo promovido en caliente no.
+	# If the compound is already built when this runs, replacing the Body discards it and leaves the
+	# body without collision: the importer builds it afterward, but a body promoted at runtime does not.
 	var had_collision := compound_boxes > 0
 	_replace_physics_body(true)
 	var vehicle := _physics_body as VoxelVehicle3D
@@ -238,9 +238,9 @@ func configure_vehicle(descriptor: Dictionary) -> VoxelVehicle3D:
 	return vehicle
 
 
-## Un Body estático reparte su colisión entre varios StaticBody3D regionales. Los joints de Godot
-## solo conocen el `JoltBody` raíz, por lo que consumidores que necesiten una excepción de colisión
-## coherente (puertas durante el despeje del marco) deben incluir también esos shards.
+## A static Body distributes its collision across several regional StaticBody3Ds. Godot joints only
+## know the root `JoltBody`, so consumers that need a consistent collision exception (such as doors
+## while clearing their frame) must include those shards too.
 func get_collision_objects() -> Array[CollisionObject3D]:
 	var result: Array[CollisionObject3D] = []
 	for child: Node in get_children():
@@ -314,9 +314,9 @@ func complete_collision_handoff(
 	runtime_state_changed.emit(self)
 
 
-## Cierra un ticket porque este Body va a desaparecer. No restaura capas ni lo descongela: hacerlo
-## durante `unregister_body` reactiva por un frame la colisión estática fantasma que el handoff
-## precisamente mantenía aislada.
+## Closes a ticket because this Body is about to disappear. Do not restore layers or unfreeze it:
+## doing so during `unregister_body` would reactivate for one frame the ghost static collision that
+## the handoff was isolating.
 func cancel_collision_handoff() -> void:
 	if not collision_handoff_pending:
 		return
@@ -337,9 +337,9 @@ func is_static_collision_revision_pending(shape: VoxelShape3D, target_revision: 
 	return _has_pending_static_collision_for_shape(shape)
 
 
-## El handoff solo necesita saber si todavía queda colisión VIEJA habilitada. La revisión completa
-## puede seguir pendiente mientras se recocinan las caras nuevas; los bloques del cráter se
-## desactivan al encolarlos y Jolt los retira en el tick seguro que ya exige el ticket.
+## The handoff only needs to know whether any OLD collision remains enabled. The full rebuild may
+## still be pending while new faces are baked; crater blocks are disabled when queued and Jolt
+## removes them on the safe tick already required by the ticket.
 func is_static_collision_handoff_pending(shape: VoxelShape3D, _target_revision: int) -> bool:
 	if shape == null or not is_instance_valid(shape):
 		return false
@@ -358,9 +358,9 @@ func acknowledge_static_collision_revision(shape: VoxelShape3D) -> void:
 		shape.collision_revision = shape.content_revision()
 
 
-## RID que representan físicamente a este Body. En dinámico es uno; en estático incluye los shards
-## regionales para que raycasts internos —por ejemplo el cable sujeto al propio poste— puedan
-## excluir toda su colisión y no solo el nodo lógico sin Shapes.
+## RIDs that physically represent this Body. A dynamic Body has one; a static Body includes its
+## regional shards so internal raycasts (for example, a cable attached to the post itself) can
+## exclude all its collision, not just the logical node with no Shapes.
 func get_collision_rids() -> Array[RID]:
 	var result: Array[RID] = []
 	if _physics_body != null and is_instance_valid(_physics_body):
@@ -380,17 +380,17 @@ func rebuild_all_collision(max_boxes := 128) -> void:
 			rebuild_static_collision(shape)
 
 
-## Cuántas macroceldas de 8 voxeles entran en cada malla de colisión estática.
+## Number of 8-voxel macro-cells in each static collision mesh.
 ##
-## Cada bloque acaba siendo una `ConcavePolygonShape3D` con su propio BVH. Godot/Jolt recomiendan
-## mantener bajo el número de Shapes; una por macrocelda generaba miles de BVH pequeños y hacía que
-## cargar Lee tardara 6–14 segundos. El bloque adaptativo conserva las caras exactas a 10 cm, pero
-## agrupa su índice espacial en regiones de 0,8/1,6/3,2 m según ocupación. El techo de 3,2 m
-## mantiene cada reconstrucción destructiva por debajo de un frame sin multiplicar mucho el total
-## de Shapes: en Lee pasa de 30.321 a 31.549 bloques (+4,1 %) frente al antiguo techo de 6,4 m.
+## Each block becomes a `ConcavePolygonShape3D` with its own BVH. Godot/Jolt recommend keeping the
+## Shape count low; one per macro-cell created thousands of small BVHs and made Lee take 6–14 seconds
+## to load. Adaptive blocks preserve exact 10 cm faces while grouping their spatial index into
+## 0.8/1.6/3.2 m regions based on occupancy. The 3.2 m cap keeps each destructive rebuild under one
+## frame without greatly increasing the total Shape count: Lee goes from 30,321 to 31,549 blocks
+## (+4.1%) compared with the former 6.4 m cap.
 const TARGET_STATIC_COLLISION_BLOCKS := 32
 const MAX_STATIC_MACRO_BLOCK := 4
-## Dos bloques por eje: cada StaticBody regional contiene como máximo 2³ = 8 concave shapes.
+## Two blocks per axis: each regional StaticBody contains at most 2³ = 8 concave Shapes.
 const STATIC_COLLISION_SHARD_SPAN := 2
 
 
@@ -404,14 +404,14 @@ static func collision_block_for(shape: VoxelShape3D) -> int:
 	return block
 
 
-## La colisión estática se genera siempre a resolución de voxel. Antes bajaba a bloques de 4 en las
-## Shapes de más de 16 K voxeles, que en un mapa real son todas las del suelo, y `coarse_occupied`
-## marca lleno un bloque entero si tiene un solo voxel dentro: la superficie salía dilatada hasta 30
-## cm por encima de lo que se dibuja y cualquier desnivel se convertía en un escalón de 40 cm. Al
-## caminar eso son paredes invisibles y sitios donde el jugador se queda metido sin poder bajar.
+## Static collision is always generated at voxel resolution. Previously, Shapes over 16 K voxels
+## used blocks of 4; in a real map, that includes every ground Shape. `coarse_occupied` marks an
+## entire block as full if it contains a single voxel, expanding the surface up to 30 cm above what
+## is rendered and turning every uneven spot into a 40 cm step. While walking, this caused invisible
+## walls and places where the player became stuck and could not descend.
 ##
-## Las caras coplanares se fusionan en C++ para conservar esta precisión sin entregar dos
-## triángulos por cara de voxel a Jolt. La precisión del suelo no es negociable.
+## Coplanar faces are merged in C++ to preserve this precision without sending two triangles per
+## voxel face to Jolt. Ground precision is non-negotiable.
 static func static_collision_lod_for(_shape: VoxelShape3D) -> int:
 	return 1
 
@@ -432,8 +432,8 @@ func rebuild_static_collision(
 		faces_usec += Time.get_ticks_usec() - faces_started
 	compound_boxes = 0
 	collision_rebuild_ms = (Time.get_ticks_usec() - started) / 1000.0
-	# Reparto entre lo que se puede hilar (generar caras, C++ puro) y lo que no (crear la forma y
-	# darsela a Jolt, que exige el hilo principal).
+	# Split work between what can run on a worker thread (generating faces, pure C++) and what cannot
+	# (creating the shape and passing it to Jolt, which requires the main thread).
 	last_faces_ms = faces_usec / 1000.0
 	shape.collision_revision = shape.content_revision()
 
@@ -451,8 +451,8 @@ func queue_static_collision_rebuild(
 	var lod := static_collision_lod_for(shape)
 	for macro: Vector3i in _static_collision_blocks(shape, dirty_min, dirty_max, block):
 		var key := _static_collision_key(shape, macro)
-		# Se retira primero la geometría vieja. Así un fragmento no espera cientos de cocciones para
-		# empezar a caer y tampoco puede chocar contra los voxeles que acaba de abandonar.
+		# Remove the old geometry first. A fragment then does not wait for hundreds of bakes before
+		# falling and cannot collide with the voxels it just left behind.
 		var stale := _macro_collisions.get(key) as CollisionShape3D
 		if stale != null and is_instance_valid(stale):
 			stale.disabled = true
@@ -481,8 +481,8 @@ func flush_one_static_collision_rebuild() -> float:
 		var pending: Dictionary = _pending_static_collisions.pop_front()
 		var target_revision := int(_pending_static_collision_keys.get(pending.key, 0))
 		_pending_static_collision_keys.erase(pending.key)
-		# El `is_instance_valid` va antes de la asignacion a proposito: asignar un Object ya liberado
-		# a una variable tipada revienta ahi mismo y nunca se llegaba a la guarda.
+		# Check `is_instance_valid` first on purpose: assigning a freed Object to a typed variable
+		# fails immediately, before reaching the guard.
 		var shape: VoxelShape3D = pending.shape if is_instance_valid(pending.shape) else null
 		if shape == null or shape.data == null or state == State.DYNAMIC:
 			continue
@@ -507,9 +507,8 @@ func _has_pending_static_collision_for_shape(shape: VoxelShape3D) -> bool:
 	return false
 
 
-## El daño de varios voxeles/Shapes del mismo cuerpo puede emitir muchas señales en un frame. El
-## compound dinámico se rehace una sola vez desde el presupuesto global, igual que la colisión
-## estática por macroceldas.
+## Damage to multiple voxels/Shapes in one Body can emit many signals per frame. Rebuild the dynamic
+## compound only once from the global budget, just like static collision by macro-cell.
 func queue_dynamic_collision_rebuild() -> void:
 	if _pending_dynamic_collision:
 		return
@@ -550,8 +549,8 @@ func _static_collision_blocks(
 				for x in range(low.x, high.x + 1):
 					blocks[Vector3i(x, y, z)] = true
 	else:
-		# En una reconstrucción completa solo interesan las macroceldas con algo dentro. Recorrer
-		# el volumen entero eran ~1,9 M de llamadas vacías por mapa importado.
+		# A full rebuild only needs macro-cells that contain something. Scanning the entire volume
+		# meant about 1.9 M empty calls per imported map.
 		var dimensions := shape.data.get_macro_dimensions()
 		var plane := dimensions.x * dimensions.y
 		for macro_index in shape.data.get_occupied_macros():
@@ -568,8 +567,8 @@ func _static_collision_blocks(
 func _rebuild_static_collision_block(
 	shape: VoxelShape3D, macro: Vector3i, block: int, lod: int
 ) -> void:
-	# La mascara sale de la paleta convertida de Teardown y deja fuera el decorado sin fisica y el
-	# follaje: ver `TeardownPalette.WALK_THROUGH`. Un `.vox` de terceros no la trae y colisiona
+	# The mask comes from the converted Teardown palette and excludes non-physical decoration and
+	# foliage: see `TeardownPalette.WALK_THROUGH`. Third-party `.vox` files do not include it and
 	# entero.
 	var faces := shape.data.build_macro_faces(
 		macro, shape.voxel_size, block, lod, TeardownPalette.mask_for(shape)
@@ -577,9 +576,9 @@ func _rebuild_static_collision_block(
 	_install_static_collision_faces(shape, macro, faces)
 
 
-## Instala un bloque ya mallado. La importación normal y el caché compilado convergen aquí, de modo
-## que ambos producen exactamente los mismos shards, keys y recursos de Jolt. Al destruirse una
-## macrocelda, `_rebuild_static_collision_block` vuelve a generar solo ese bloque desde voxeles vivos.
+## Installs a pre-meshed block. Normal imports and the compiled cache converge here, producing
+## exactly the same shards, keys, and Jolt resources. When a macro-cell is destroyed,
+## `_rebuild_static_collision_block` regenerates only that block from live voxels.
 func _install_static_collision_faces(
 	shape: VoxelShape3D, macro: Vector3i, faces: PackedVector3Array
 ) -> void:
@@ -592,8 +591,8 @@ func _install_static_collision_faces(
 			_collision_nodes.erase(collision)
 			collision.queue_free()
 			_macro_collisions.erase(key)
-			# El hijo sigue contado hasta que corre queue_free; uno significa que esta región quedó
-			# vacía y su Body también puede salir del broadphase.
+			# The child remains counted until `queue_free` runs; one means this region is empty and its
+			# Body can also leave the broadphase.
 			if shard != null and shard != _physics_body and shard.get_child_count() <= 1:
 				_static_collision_shards.erase(shard_key)
 				shard.queue_free()
@@ -612,9 +611,9 @@ func _install_static_collision_faces(
 		collision.disabled = false
 
 
-## Extrae las caras iniciales ya fusionadas para el compilado offline del mapa. No se guardan RIDs
-## ni nodos de PhysicsServer: esos identificadores solo valen durante este proceso. Se persiste la
-## entrada geométrica pura que permite reconstruirlos sin repetir `build_macro_faces`.
+## Extracts the initially merged faces for offline map compilation. Do not save RIDs or PhysicsServer
+## nodes: those identifiers are valid only during this process. Persist the pure geometry input so
+## they can be rebuilt without repeating `build_macro_faces`.
 func export_baked_static_collision(shape: VoxelShape3D) -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
 	var prefix := "%d:" % shape.get_instance_id()
@@ -638,8 +637,8 @@ func export_baked_static_collision(shape: VoxelShape3D) -> Array[Dictionary]:
 	return result
 
 
-## Restaura el producto de `export_baked_static_collision`. Las Shapes siguen siendo destructibles:
-## el caché solo sustituye la construcción inicial y no participa en actualizaciones posteriores.
+## Restores the output of `export_baked_static_collision`. Shapes remain destructible: the cache
+## replaces only the initial build and does not participate in later updates.
 func import_baked_static_collision(
 	shape: VoxelShape3D, records: Array
 ) -> void:
@@ -710,18 +709,17 @@ func rebuild_dynamic_collision(max_boxes := 128) -> void:
 			_collision_nodes.append(collision)
 	compound_boxes = int(installed.count)
 	_apply_mass_properties()
-	# Se sella cada Shape del cuerpo, no solo las que el instalador llego a meter: una Shape truncada
-	# por el presupuesto de cajas se quedaba en revision 0 y el registro la reportaba desincronizada
-	# para siempre.
+	# Seal every Shape in the Body, not only those the installer added: a Shape truncated by the box
+	# budget stayed at revision 0, and the registry reported it as desynchronized forever.
 	for shape in shapes:
 		shape.collision_revision = shape.content_revision()
 	collision_rebuild_ms = (Time.get_ticks_usec() - started) / 1000.0
 	runtime_state_changed.emit(self)
 
 
-## Recalcula masa, centro e inercia sin tocar el compound. Es deliberadamente público para ajustes
-## semánticos de importación —por ejemplo, una puerta voxel representa una hoja hueca, no un bloque
-## macizo— que no cambian ni una celda ni una caja de colisión.
+## Recalculates mass, center, and inertia without touching the compound. Intentionally public for
+## semantic import adjustments—for example, a voxel door represents a hollow panel, not a solid
+## block—that change neither cells nor collision boxes.
 func refresh_mass_properties() -> void:
 	_apply_mass_properties()
 
@@ -755,9 +753,9 @@ func apply_explosion_impulse(center: Vector3, energy: float, radius: float) -> v
 	var falloff := 1.0 - effective_distance / radius
 	rigid.apply_central_impulse(offset / distance * energy * rigid.mass * falloff * 0.12)
 	if structural_detachment:
-		# Un poste perfectamente vertical puede aterrizar otra vez sobre su tocón si solo recibe fuerza
-		# central. Una componente horizontal determinista representa la asimetría real del corte y le da
-		# el par mínimo para volcar, sin depender del orden de los Bodies ni de ruido aleatorio.
+		# A perfectly vertical post can land on its stump again if it receives only central force.
+		# A deterministic horizontal component represents the actual asymmetry of the break and
+		# provides enough torque to topple, without depending on Body order or random noise.
 		var horizontal := Vector3(offset.x, 0.0, offset.z)
 		if horizontal.length_squared() < 0.0001:
 			var angle := float(get_instance_id() % 6283) * 0.001
@@ -769,8 +767,8 @@ func apply_explosion_impulse(center: Vector3, energy: float, radius: float) -> v
 	runtime_state_changed.emit(self)
 
 
-## El RigidBody solo captura datos del solver. La mutación voxel se difiere y pasa por el World,
-## que elimina contactos duplicados y limita cuántos cráteres físicos pueden cocinarse por frame.
+## The RigidBody only captures solver data. Voxel mutation is deferred to the World, which removes
+## duplicate contacts and limits how many physical craters can be processed per frame.
 func report_physics_impact(
 	collider: Object, point: Vector3, impulse: float, relative_speed: float
 ) -> void:
@@ -792,8 +790,8 @@ func _create_physics_body(dynamic: bool) -> void:
 			var impact_body := VoxelImpactRigidBody3D.new()
 			impact_body.voxel_owner = self
 			impact_body.continuous_cd = continuous_collision
-			# Ocho contactos bastan para sumar una cara completa de un compound sin el coste de reportar
-			# las decenas de puntos que genera una torre al aterrizar.
+			# Eight contacts are enough to cover one full compound face without the cost of reporting
+			# the dozens of points generated when a tower lands.
 			impact_body.contact_monitor = true
 			impact_body.max_contacts_reported = 8
 			_physics_body = impact_body
@@ -809,7 +807,7 @@ func _replace_physics_body(dynamic: bool) -> void:
 	for shape in shapes:
 		shape.reparent(self, true)
 	_clear_collisions()
-	# La colision que sellaba estas revisiones acaba de irse con el cuerpo anterior.
+	# The collision that sealed these revisions just left with the previous body.
 	for shape in shapes:
 		shape.collision_revision = 0
 	if _physics_body != null:
@@ -845,9 +843,9 @@ func _apply_mass_properties() -> void:
 	)
 
 
-## Los postes tienen una inercia diminuta alrededor de su eje largo y enorme alrededor de los otros
-## dos. Esa anisotropía permite reconocerlos sin tags del mapa y disipar el péndulo de cables/choques
-## sin amortiguar cajas, vehículos ni cascotes compactos.
+## Posts have very low inertia around their long axis and high inertia around the other two. This
+## anisotropy identifies them without map tags and damps rope/collision pendulum motion without
+## damping boxes, vehicles, or compact rubble.
 static func structural_damping_for_inertia(body_inertia: Vector3) -> Vector2:
 	return VoxelMassProperties.damping_for_inertia(body_inertia)
 
@@ -856,7 +854,7 @@ func _on_shape_voxels_changed(
 	_world_aabb: AABB, dirty_min: Vector3i, dirty_max: Vector3i, shape: VoxelShape3D
 ) -> void:
 	last_interaction_msec = Time.get_ticks_msec()
-	# Que a un prop le arranquen voxeles lo despierta: perder masa cambia su equilibrio.
+	# Removing voxels from a prop wakes it: losing mass changes its equilibrium.
 	if state == State.DYNAMIC:
 		(_physics_body as RigidBody3D).sleeping = false
 		queue_dynamic_collision_rebuild()

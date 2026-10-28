@@ -1,8 +1,8 @@
 class_name MainDiagnostics
 extends Node
-## Capturas, pruebas visuales y benchmarks activados por línea de comandos. Ninguna de estas rutas
-## participa en el loop normal del juego; viven fuera de `main.gd` para que el bootstrap no cargue
-## con cientos de líneas de instrumentación.
+## Captures, visual tests, and benchmarks activated from the command line. None of these paths
+## are not part of the normal game loop; they live outside `main.gd` so the bootstrap does not load
+## hundreds of lines of instrumentation.
 
 var _world: VoxelWorld3D
 var _renderer: VoxelRenderSystem
@@ -176,7 +176,7 @@ func capture_migrated_scene() -> void:
 func capture_water() -> void:
 	var water := _world.get_node_or_null("TeardownWater") as VoxelWaterSystem
 	if water == null or water.get_surface_count_imported() == 0:
-		push_error("--water-capture: el mapa no contiene superficies de agua")
+		push_error("--water-capture: the map has no water surfaces")
 		get_tree().quit(23)
 		return
 	var water_bounds := water.get_smallest_surface_bounds()

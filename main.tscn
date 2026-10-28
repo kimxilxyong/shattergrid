@@ -224,7 +224,7 @@ offset_left = 12.0
 offset_top = -32.0
 offset_right = 1100.0
 offset_bottom = -10.0
-text = "WASD mover/conducir  ·  E entrar/salir del vehículo  ·  Espacio saltar/freno de mano  ·  Clic izq cañón  ·  Clic der agarrar  ·  G/clic medio bomba  ·  P pausa  ·  R reiniciar  ·  Esc liberar ratón"
+text = "WASD walk/drive  ·  E enter/exit vehicle  ·  Space jump/handbrake  ·  Left click fire cannon  ·  Right click grab  ·  G/middle click bomb  ·  P pause  ·  R restart  ·  Esc release mouse"
 label_settings = SubResource("Hud_text")
 
 [node name="PauseMenu" type="CanvasLayer" parent="." unique_id=1535070177]
@@ -275,21 +275,21 @@ theme_override_constants/separation = 12
 layout_mode = 2
 theme_override_colors/font_color = Color(0.38, 0.86, 1, 1)
 theme_override_font_sizes/font_size = 14
-text = "SHATTERGRID  /  SISTEMA"
+text = "SHATTERGRID  /  SYSTEM"
 horizontal_alignment = 1
 
 [node name="Title" type="Label" parent="PauseMenu/Overlay/Layout/MenuCard/Content" unique_id=891297183]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.94, 0.98, 1, 1)
 theme_override_font_sizes/font_size = 40
-text = "JUEGO EN PAUSA"
+text = "GAME PAUSED"
 horizontal_alignment = 1
 
 [node name="Subtitle" type="Label" parent="PauseMenu/Overlay/Layout/MenuCard/Content" unique_id=959420001]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.65, 0.72, 0.8, 1)
 theme_override_font_sizes/font_size = 15
-text = "La simulación y la destrucción están detenidas"
+text = "Simulation and destruction are paused"
 horizontal_alignment = 1
 
 [node name="Divider" type="Panel" parent="PauseMenu/Overlay/Layout/MenuCard/Content" unique_id=902671717]
@@ -308,7 +308,7 @@ theme_override_styles/normal = SubResource("Pause_button")
 theme_override_styles/pressed = SubResource("Pause_button_pressed")
 theme_override_styles/hover = SubResource("Pause_button_hover")
 theme_override_styles/focus = SubResource("Pause_button_focus")
-text = "CONTINUAR"
+text = "RESUME"
 
 [node name="RestartButton" type="Button" parent="PauseMenu/Overlay/Layout/MenuCard/Content" unique_id=220711955]
 custom_minimum_size = Vector2(0, 52)
@@ -322,7 +322,7 @@ theme_override_styles/normal = SubResource("Pause_button")
 theme_override_styles/pressed = SubResource("Pause_button_pressed")
 theme_override_styles/hover = SubResource("Pause_button_hover")
 theme_override_styles/focus = SubResource("Pause_button_focus")
-text = "REINICIAR ESCENA"
+text = "RESTART SCENE"
 
 [node name="QuitButton" type="Button" parent="PauseMenu/Overlay/Layout/MenuCard/Content" unique_id=1427542158]
 custom_minimum_size = Vector2(0, 52)
@@ -335,11 +335,11 @@ theme_override_styles/normal = SubResource("Pause_button")
 theme_override_styles/pressed = SubResource("Pause_button_pressed")
 theme_override_styles/hover = SubResource("Pause_button_hover")
 theme_override_styles/focus = SubResource("Pause_button_focus")
-text = "SALIR AL ESCRITORIO"
+text = "QUIT TO DESKTOP"
 
 [node name="Hint" type="Label" parent="PauseMenu/Overlay/Layout/MenuCard/Content" unique_id=2010063333]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.52, 0.6, 0.68, 1)
 theme_override_font_sizes/font_size = 13
-text = "Pulsa  P  para volver al juego"
+text = "Press  P  to return to the game"
 horizontal_alignment = 1

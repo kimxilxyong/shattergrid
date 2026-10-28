@@ -1,5 +1,5 @@
 extends SceneTree
-## Mide sobre Lee la holgura real entre las dos piezas authored de la torre eléctrica.
+## Measure the actual clearance between the two authored pieces of Lee's power tower.
 
 var MAP := VoxelProjectPaths.teardown_map_path()
 

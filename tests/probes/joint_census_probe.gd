@@ -1,5 +1,5 @@
 extends SceneTree
-## Valida que cada joint importado esté unido a material real y no solo a una AABB solapada.
+## Verify that each imported joint is attached to actual material, not just an overlapping AABB.
 
 var MAP := VoxelProjectPaths.teardown_map_path()
 

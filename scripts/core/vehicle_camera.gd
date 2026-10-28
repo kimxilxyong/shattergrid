@@ -1,14 +1,14 @@
 class_name VehicleCamera
 extends RefCounted
-## Cámara de puntería arcade al estilo World of Tanks, aislada del jugador a pie.
+## World of Tanks-style arcade aiming camera, independent of the on-foot player.
 ##
-## Reglas del rig, en orden de importancia:
-##  1. El pivote solo hereda la POSICIÓN y el yaw del casco. El roll y el pitch del chasis se
-##     descartan: cada bache rotaba la base entera y trasladaba el pivote, y ese temblor entraba en
-##     la mira por la puerta de atrás aunque la orientación no se suavizara.
-##  2. La altura vive DENTRO del pivote, no como un offset de mundo sumado tras la órbita. Así el
-##     encuadre es el mismo a cualquier pitch y la retícula pasa por el punto que orbita.
-##  3. El yaw es absoluto en el mundo: girar el tanque no arrastra la vista.
+## Rig rules, in order of importance:
+##  1. The pivot inherits only the hull POSITION and yaw. Chassis roll and pitch are discarded:
+##     every bump used to rotate the entire base and move the pivot, indirectly shaking the reticle
+##     even when orientation was not smoothed.
+##  2. Height is INSIDE the pivot, not a world offset added after the orbit. This keeps framing the
+##     same at any pitch and makes the reticle pass through the orbit target.
+##  3. Yaw is absolute in world space: turning the tank does not pull the view along.
 
 const DISTANCE := 6.2
 const MAX_DISTANCE := 9.0
@@ -22,8 +22,8 @@ const COCKPIT_FOV := 82.0
 const PITCH_MIN := -0.42
 const PITCH_MAX := 0.72
 
-## FOV de referencia de la sensibilidad. Al alejar el FOV real de este valor, el ratón mueve menos
-## radianes por píxel: sin esto, apuntar de lejos con el mismo gesto que de cerca es imposible.
+## Reference FOV for sensitivity. As the actual FOV moves away from this value, the mouse moves
+## fewer radians per pixel; without this, the same gesture cannot aim at both near and far targets.
 const SENSITIVITY_REFERENCE_FOV := 78.0
 
 var yaw := 0.0
@@ -35,9 +35,9 @@ var height := HEIGHT
 var fov := 90.0
 
 
-## Un turismo cabe en los 6,2 m por defecto; un tanque mide 7,8 m de casco y 9,6 con el cañón, y con
-## la distancia fija la cámara se metía dentro del propio vehículo. Se encuadra por la huella real
-## -que ya incluye torreta y remolque- al subirse, una vez.
+## A car fits within the default 6.2 m; a tank is 7.8 m across the hull and 9.6 m with the cannon,
+## so the fixed camera distance placed the camera inside the vehicle. Fit to the actual footprint—
+## including turret and barrel—once, when entering.
 func fit(vehicle: VoxelVehicle3D, fallback_fov: float) -> void:
 	var bounds := vehicle.get_world_bounds()
 	var span := maxf(bounds.size.x, bounds.size.z)
@@ -55,7 +55,7 @@ func fit(vehicle: VoxelVehicle3D, fallback_fov: float) -> void:
 	distance = target_distance
 
 
-## Coloca la cámara sin suavizado, al subirse al vehículo.
+## Places the camera without smoothing when entering a vehicle.
 func snap(camera: Camera3D, vehicle: VoxelVehicle3D) -> void:
 	yaw = yaw_from_forward(vehicle.forward_direction())
 	pitch = 0.12
@@ -69,7 +69,7 @@ func snap(camera: Camera3D, vehicle: VoxelVehicle3D) -> void:
 	camera.reset_physics_interpolation()
 
 
-## Devuelve `true` si el evento era del orbitador y ya está consumido.
+## Returns `true` if the event belonged to the orbit camera and was consumed.
 func handle_input(event: InputEvent) -> bool:
 	if event is InputEventMouseButton:
 		var button := event as InputEventMouseButton
@@ -85,8 +85,8 @@ func handle_input(event: InputEvent) -> bool:
 		var motion := event as InputEventMouseMotion
 		var sensitivity := aim_sensitivity(fov)
 		yaw -= motion.relative.x * sensitivity
-		# El controlador anterior tenía el eje vertical invertido respecto a la cámara a pie: bajar
-		# el ratón metía la cámara debajo del coche y obligaba a mirar hacia arriba.
+		# The previous controller's vertical axis was inverted relative to the on-foot camera: moving
+		# the mouse down put the camera under the car and forced the player to look upward.
 		pitch = pitch_after_input(pitch, motion.relative.y, sensitivity)
 		return true
 	return false
@@ -101,23 +101,23 @@ func update(delta: float, camera: Camera3D, vehicle: VoxelVehicle3D, exclude: Ar
 	var orbit := pivot(vehicle.get_camera_pivot(vehicle_transform), height)
 	var aim := aim_direction(yaw, pitch)
 	var exterior := orbit - aim * distance
-	# La vista interior usa el `<location tags="player">` authored del XML, no el centro de masa.
-	# El blend evita el salto de cámara cuando la rueda cruza el último paso de zoom.
+	# The interior view uses the XML-authored `<location tags="player">`, not the center of mass.
+	# Blending avoids a camera jump when the wheel crosses the final zoom step.
 	var cockpit := vehicle.get_driver_view_from_transform(vehicle_transform)
 	var interior_weight := 1.0 - smoothstep(COCKPIT_BLEND_END, COCKPIT_BLEND_START, distance)
 	var desired := exterior.lerp(cockpit, interior_weight)
 	var smoothed := camera.global_position.lerp(desired, 1.0 - exp(-SMOOTH * delta))
 	if interior_weight < 0.999:
-		# Resolver la colisión después del suavizado impide que el resorte atraviese una pared un par
-		# de frames aunque el destino final ya estuviera correctamente recortado.
+		# Resolving collision after smoothing prevents the spring from passing through a wall for a
+		# couple of frames, even if the final destination was already correctly cropped.
 		var query := PhysicsRayQueryParameters3D.create(orbit, smoothed)
 		query.collide_with_areas = false
 		query.exclude = exclude
 		var hit := camera.get_world_3d().direct_space_state.intersect_ray(query)
 		if not hit.is_empty():
 			smoothed = (hit.position as Vector3) + (hit.normal as Vector3) * 0.22
-	# El encuadre se suaviza; la dirección de mira no. Un lerp sobre la orientación convierte cada
-	# bache del casco en un temblor de la mira y es lo que hacía imposible apuntar.
+	# Framing is smoothed; aim direction is not. Lerp on orientation turns every hull bump into
+	# reticle shake, making aiming impossible.
 	camera.global_position = smoothed
 	camera.look_at(camera.global_position + aim * 100.0, Vector3.UP)
 	camera.fov = lerpf(fov, COCKPIT_FOV, interior_weight)
@@ -127,15 +127,15 @@ func is_interior() -> bool:
 	return target_distance <= COCKPIT_BLEND_END
 
 
-## El punto que se ve en el centro de la pantalla: el pivote plano del casco, elevado. La altura va
-## aquí y no tras la órbita, o el offset vertical se queda fijo en mundo y el encuadre se desliza
-## solo al cambiar el pitch.
+## Point shown at the center of the screen: the flat hull pivot, raised. Height is applied here,
+## not after the orbit, or the vertical offset remains fixed in world space and framing slides when
+## pitch changes.
 static func pivot(flat_pivot: Vector3, pivot_height: float) -> Vector3:
 	return flat_pivot + Vector3.UP * pivot_height
 
 
-## Dirección a la que mira la cámara. Yaw absoluto en el mundo: girar el tanque no arrastra la mira,
-## que es lo que obligaba a recolocar el ratón en cada curva.
+## Camera aim direction. Yaw is absolute in world space: turning the tank does not pull the reticle
+## along and force the player to reposition the mouse on every turn.
 static func aim_direction(camera_yaw: float, camera_pitch: float) -> Vector3:
 	return Vector3(
 		-sin(camera_yaw) * cos(camera_pitch),
@@ -148,8 +148,8 @@ static func yaw_from_forward(forward: Vector3) -> float:
 	return atan2(-forward.x, -forward.z)
 
 
-## Radianes por píxel de ratón. Escala con `tan(fov/2)` para que el gesto tape siempre la misma
-## fracción de pantalla: al hacer zoom el mundo se agranda y el mismo píxel debe girar menos.
+## Radians per mouse pixel. Scales with `tan(fov/2)` so the same gesture covers the same fraction
+## of the screen: when zooming in, the world gets larger and each pixel must rotate less.
 static func aim_sensitivity(current_fov: float) -> float:
 	var reference := tan(deg_to_rad(SENSITIVITY_REFERENCE_FOV) * 0.5)
 	var actual := tan(deg_to_rad(clampf(current_fov, 5.0, 170.0)) * 0.5)

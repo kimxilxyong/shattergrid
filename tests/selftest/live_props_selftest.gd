@@ -1,8 +1,8 @@
 extends "res://tests/selftest/selftest.gd"
-## Los props del mapa nacen dormidos, no congelados. Dormido significa que Jolt no lo simula hasta
-## que algo lo toca; congelado significaba estatica muerta que no reaccionaba a nada. La diferencia
-## es todo el mundo vivo: cajas que se empujan, tuberias que cuelgan de sus joints, bidones que salen
-## volando con una explosion al lado.
+## Map props start asleep, not frozen. Asleep means Jolt does not simulate them until something
+## touches them; frozen meant inert static objects that did not react to anything. That difference
+## makes the world feel alive: boxes can be pushed, pipes hang from their joints, and canisters fly
+## when an explosion goes off nearby.
 
 
 func _make_body(world: VoxelWorld3D, origin: Vector3, dynamic: bool) -> VoxelBody3D:
@@ -30,7 +30,7 @@ func _height(body: VoxelBody3D) -> float:
 
 
 func _run() -> void:
-	print("props vivos")
+	print("live props")
 	var world := make_world()
 
 	var floor_body := _make_body(world, Vector3(0, 0, 0), false)
@@ -39,19 +39,19 @@ func _run() -> void:
 	crate.sleep()
 	for _frame in 10:
 		await physics_frame
-	_check(not crate.is_awake(), "el prop importado arranca dormido y no cuesta simulacion")
+	_check(not crate.is_awake(), "the imported prop starts asleep and costs no simulation time")
 	var resting := _height(crate)
 
-	# Lo decisivo: algo lo toca. Congelado no pasaba nada; dormido, Jolt lo reactiva por contacto.
+	# The key is contact. A frozen body did nothing; Jolt wakes a sleeping body on contact.
 	var hammer := _make_body(world, Vector3(0, 5.0, 0), true)
 	hammer.name = "Martillo"
 	for _frame in 90:
 		await physics_frame
 	_check(crate.is_awake() or absf(_height(crate) - resting) > 0.02,
-		"un cuerpo que le cae encima lo despierta y lo mueve")
-	print("  altura del prop: reposo %.3f  tras el golpe %.3f" % [resting, _height(crate)])
+		"a body landing on it wakes and moves it")
+	print("  prop height: resting %.3f  after impact %.3f" % [resting, _height(crate)])
 
-	# Y una explosion al lado tiene que tirarlo aunque no le quite ni un voxel.
+	# A nearby explosion must also push it even if it removes no voxels.
 	var other := _make_body(world, Vector3(20, 1.2, 0), true)
 	other.sleep()
 	for _frame in 10:
@@ -61,11 +61,11 @@ func _run() -> void:
 	for _frame in 60:
 		await physics_frame
 	var moved := before.distance_to(other.get_shapes()[0].world_bounds().get_center())
-	print("  desplazado por la onda: %.3f m" % moved)
-	_check(moved > 0.05, "una explosion al lado empuja el prop dormido")
+	print("  displaced by the shockwave: %.3f m" % moved)
+	_check(moved > 0.05, "a nearby explosion pushes the sleeping prop")
 
-	# Un volumen largo puede solapar la esfera amplia de candidatos aunque toda su masa esté fuera
-	# de la onda. Despertarlo sin aplicarle fuerza era el burst fantasma de postes/cables en Lee.
+	# A long volume can overlap the broad candidate sphere while all its mass remains outside the
+	# blast. Waking it without applying force caused the phantom burst of posts/cables in Lee.
 	var distant_pole := VoxelBody3D.new()
 	distant_pole.state = VoxelBody3D.State.DYNAMIC
 	world.add_child(distant_pole)
@@ -89,10 +89,10 @@ func _run() -> void:
 	for _frame in 3:
 		await physics_frame
 	_check(not distant_pole.is_awake(),
-		"un AABB largo fuera del radio de impulso no crea un Body despierto fantasma")
+		"a long AABB outside the impulse radius does not create a ghost awake Body")
 
-	# El presupuesto no puede degradar la colision de props dormidos: eso convertia cada caja del
-	# mapa en un bloque de 40 cm ya en el primer tick.
+	# The budget must not degrade collision for sleeping props: that turned every map box into a
+	# 40 cm block on the first tick.
 	world.physics_budget.max_active_boxes = 1
 	var boxes_before := crate.compound_boxes
 	crate.sleep()
@@ -100,7 +100,7 @@ func _run() -> void:
 		await physics_frame
 	world._enforce_physics_budget(false)
 	_check(crate.compound_boxes == boxes_before,
-		"un prop dormido conserva su colision fina (%d cajas)" % boxes_before)
+		"a sleeping prop keeps its detailed collision (%d boxes)" % boxes_before)
 
 	if failures == 0:
 		print("VOXEL_LIVE_PROPS_SELFTEST_OK")

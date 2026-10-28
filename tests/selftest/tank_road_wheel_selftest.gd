@@ -1,6 +1,6 @@
 extends "res://tests/selftest/selftest.gd"
-## Rodillos del tren de rodaje: giran con el avance y suben/bajan con la suspensión, sin que sacar
-## su arte del casco cambie la altura a la que el tanque descansa.
+## Road wheels rotate as the tank advances and move with the suspension, without changing the
+## resting height after their geometry is detached from the hull.
 
 class Gunner:
 	extends Node3D
@@ -12,7 +12,7 @@ class Gunner:
 
 
 func _run() -> void:
-	print("rodillos del tanque")
+	print("tank road wheels")
 	var world := make_world()
 
 	make_box_body(world, Vector3(60, 1, 60), Vector3(0, -0.5, 0))
@@ -20,7 +20,7 @@ func _run() -> void:
 	var gunner := Gunner.new()
 	root.add_child(gunner)
 	var tank := VoxelTank3D.spawn(world, Vector3(0, 1.0, 0), gunner)
-	_check(tank != null, "el tanque se importa")
+	_check(tank != null, "the tank is imported")
 	if tank == null:
 		quit(1)
 		return
@@ -28,12 +28,12 @@ func _run() -> void:
 	for _frame in 150:
 		await physics_frame
 	var bottom := tank.hull.get_shapes()[0].world_bounds().position.y
-	print("  altura de reposo del casco: %.3f m" % bottom)
-	# Referencia medida con el tren de rodaje horneado en el casco, antes de sacarlo a visuales.
-	_check(absf(bottom - 0.154) < 0.06, "el tanque descansa a la misma altura que antes")
+	print("  hull resting height: %.3f m" % bottom)
+	# Reference measured with the running gear baked into the hull, before separating its visuals.
+	_check(absf(bottom - 0.154) < 0.06, "the tank rests at the same height as before")
 
 	var visuals: Array = tank.vehicle._wheel_visuals
-	_check(visuals.size() == 14, "los catorce rodillos del arte son visuales de rueda")
+	_check(visuals.size() == 14, "all fourteen authored road wheels are wheel visuals")
 	if visuals.is_empty():
 		quit(1)
 		return
@@ -41,10 +41,10 @@ func _run() -> void:
 	var rest_basis := probe.global_basis
 	var rest_height := probe.global_position.y - bottom
 
-	# El disco está pintado en el casco entre 0.20 y 1.10 m sobre su suelo: si el muelle lo deja en
-	# otro sitio, los rodillos cuelgan por debajo de la oruga y el tanque se ve roto.
-	print("  altura del rodillo asentado: %.3f m sobre el casco" % rest_height)
-	_check(absf(rest_height - 0.65) < 0.08, "el rodillo asentado queda donde lo pintó el arte")
+	# The disc is drawn on the hull between 0.20 and 1.10 m above the track: if the spring leaves it
+	# elsewhere, the road wheels hang below the track and the tank looks broken.
+	print("  settled road-wheel height: %.3f m above the hull" % rest_height)
+	_check(absf(rest_height - 0.65) < 0.08, "the settled road wheel stays where the art placed it")
 	var start := tank.hull_transform().origin
 	tank.vehicle.set_control_override(true, 1.0, 0.0, false)
 	var spin := 0.0
@@ -61,12 +61,12 @@ func _run() -> void:
 			- rest_height
 		))
 	tank.vehicle.set_control_override(false)
-	print("  avance del tanque: %.2f m" % start.distance_to(tank.hull_transform().origin))
-	print("  giro máximo del rodillo: %.1f grados; recorrido: %.3f m" % [
+	print("  tank travel: %.2f m" % start.distance_to(tank.hull_transform().origin))
+	print("  maximum road-wheel rotation: %.1f degrees; travel: %.3f m" % [
 		rad_to_deg(spin), travel
 	])
-	_check(spin > 0.5, "los rodillos ruedan al avanzar")
-	_check(travel > 0.01, "los rodillos se mueven con la suspensión respecto al casco")
+	_check(spin > 0.5, "the road wheels rotate while moving")
+	_check(travel > 0.01, "the road wheels move relative to the hull with the suspension")
 
-	print("fallos: ", failures)
+	print("failures: ", failures)
 	quit(1 if failures > 0 else 0)

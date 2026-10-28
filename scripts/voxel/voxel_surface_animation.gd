@@ -1,17 +1,17 @@
 class_name VoxelSurfaceAnimation
 extends RefCounted
-## Parámetros visuales por Shape para materiales que simulan movimiento sobre una superficie.
+## Per-Shape visual parameters for materials that simulate movement across a surface.
 ##
-## Las distancias y los offsets están en celdas voxel. El componente no conoce vehículos ni el
-## renderer: los productores avanzan los offsets y el renderer observa `revision` para subirlos.
+## Distances and offsets are in voxel cells. This component knows nothing about vehicles or the
+## renderer: producers advance the offsets, and the renderer watches `revision` to upload them.
 
 var material_index := 0
 var cell_bounds := AABB()
-## Paso del patrón, en celdas. El shader reparte un número entero de eslabones sobre el perímetro
-## para que el bucle cierre sin junta partida, así que este valor es el paso nominal.
+## Pattern pitch in cells. The shader distributes an integer number of links around the perimeter
+## so the loop closes without a broken seam; this is the nominal pitch.
 var link_pitch := 4.0
-## Chaflán de las esquinas del perfil, en celdas. El shader lo usa para reconocer la capa exterior del
-## anillo, que es la única que puede vaciar sin abrir un agujero al hueco interior.
+## Profile corner chamfer in cells. The shader uses it to identify the ring's outer layer, the only
+## layer that can be emptied without opening a hole into the interior.
 var profile_chamfer := 0.0
 var offsets := Vector2.ZERO
 var revision := 0
@@ -29,9 +29,9 @@ static func create(
 	return animation
 
 
-## Longitud del bucle que recorre el patrón: el perímetro del perfil, que vive en el plano largo/alto
-## del volumen y es un octágono (extremos achaflanados a 45°). Tiene que coincidir al milímetro con el
-## que calcula el shader: envolver el offset en otro valor mete un salto de fase en cada vuelta.
+## Pattern loop length: the profile perimeter in the volume's long/height plane. It is an octagon
+## with ends chamfered at 45 degrees. This must match the shader's calculation exactly; wrapping the
+## offset by another value introduces a phase jump on every loop.
 func perimeter_cells() -> float:
 	var extent := Vector2(cell_bounds.size.x, cell_bounds.size.y) * 0.5 - Vector2.ONE * 0.5
 	var chamfer := minf(profile_chamfer, minf(extent.x, extent.y))

@@ -1,6 +1,6 @@
 extends SceneTree
-## Los tres arreglos sobre los datos reales de Lee: cables clavados a cuerpos, la torre que cae de
-## una pieza y los joints del poste de tuberias que sobreviven a que el poste se vuelva dinamico.
+## Three fixes tested against Lee's real data: cables attached to bodies, the tower falling as one
+## piece, and the pipe pole's joints surviving its transition to a dynamic body.
 var MAP := VoxelProjectPaths.teardown_map_path()
 var failures := 0
 
@@ -14,7 +14,7 @@ func _check(condition: bool, message: String) -> void:
 		print("  ok   ", message)
 	else:
 		failures += 1
-		printerr("  FALLO ", message)
+		printerr("  FAIL ", message)
 
 
 func _bodies_near(world: VoxelWorld3D, probe: Vector3, radius: float) -> Array[VoxelBody3D]:
@@ -41,27 +41,27 @@ func _run() -> void:
 	var renderer: VoxelRenderSystem
 	if "--renderer" in OS.get_cmdline_user_args():
 		_check(RenderingServer.get_rendering_device() != null,
-			"la prueba visual dispone de RenderingDevice")
+			"the visual test has a RenderingDevice available")
 		var camera := Camera3D.new()
 		root.add_child(camera)
 		renderer = VoxelRenderSystem.new()
 		root.add_child(renderer)
-		_check(renderer.setup(world, camera), "el renderer carga el mapa completo")
+		_check(renderer.setup(world, camera), "the renderer loads the full map")
 	for _frame in 10:
 		await physics_frame
 
 	var ropes := world.get_node_or_null("TeardownRopes") as VoxelRopes
-	print("\ncables: %d tramos, %d con algun extremo clavado a un cuerpo" % [
+	print("\ncables: %d spans, %d with an endpoint attached to a body" % [
 		ropes.span_count(), ropes.attached_count()])
 	var joints := world.get_node_or_null("TeardownJoints") as VoxelJoints
 	print("joints: %d registrados, %d vivos" % [joints.count(), joints.live_count()])
 
-	# La torre electrica: mastil (Body35) y cabeza (Body34) son `<vox>` distintos, cada uno con su
-	# cuerpo. Al volar la base tienen que caer juntos, no cada uno por su lado.
-	print("\n=== torre electrica ===")
+	# The power tower's mast (Body35) and head (Body34) are separate `<vox>` elements, each with its
+	# own body. When the base is destroyed, they must fall together, not separately.
+	print("\n=== power tower ===")
 	var tower := _bodies_near(world, Vector3(-3.9, 14.7, 70.9), 2.0)
 	var head := _bodies_near(world, Vector3(-3.9, 25.5, 70.9), 1.0)
-	print("  antes: mastil=%s cabeza=%s" % [tower[0].name, head[0].name])
+	print("  before: mast=%s head=%s" % [tower[0].name, head[0].name])
 	var head_shape := head[0].get_shapes()[0]
 	var head_y := head_shape.world_bounds().get_center().y
 	for step in 3:
@@ -76,11 +76,11 @@ func _run() -> void:
 			break
 	var head_body := world._body_of(head_shape)
 	var head_rigid := head_body.get_physics_body() as RigidBody3D if head_body != null else null
-	print("  despues: mastil estado=%d  cabeza estado=%d  mismo cuerpo=%s" % [
+	print("  after: mast state=%d  head state=%d  same body=%s" % [
 		mast_body.state if mast_body != null else -1,
 		head_body.state if head_body != null else -1,
 		mast_body == head_body])
-	print("  handoff=%s freeze=%s sleeping=%s cajas=%d holds=%d colas=%s" % [
+	print("  handoff=%s freeze=%s sleeping=%s boxes=%d holds=%d queues=%s" % [
 		head_body.collision_handoff_pending if head_body != null else false,
 		head_rigid.freeze if head_rigid != null else false,
 		head_rigid.sleeping if head_rigid != null else false,
@@ -89,7 +89,7 @@ func _run() -> void:
 		world.get_metrics(),
 	])
 	var tower_mass := head_rigid.mass if head_rigid != null else -1.0
-	print("  masa dinamica=%.1f kg  CCD=%s  cajas activas mundo=%d/%d" % [
+	print("  dynamic mass=%.1f kg  CCD=%s  active world boxes=%d/%d" % [
 		tower_mass,
 		head_rigid.continuous_cd if head_rigid != null else false,
 		int(world.get_metrics().awake_compound_boxes),
@@ -111,21 +111,21 @@ func _run() -> void:
 	awake_records.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		return int(a.boxes) > int(b.boxes)
 	)
-	print("  Bodies despiertos: ", JSON.stringify(awake_records))
+	print("  awake Bodies: ", JSON.stringify(awake_records))
 	_check(head_body != null and head_body.state == VoxelBody3D.State.DYNAMIC,
-		"la cabeza pierde el estado estático al destruir todos sus apoyos")
+		"the head stops being static after all supports are destroyed")
 	_check(mast_body == head_body,
-		"la cabeza y el tramo que la sostenía conservan un único Body")
+		"the head and its supporting section remain in one Body")
 	_check(not head_body.collision_handoff_pending,
-		"el handoff no queda abandonado")
+		"the handoff is not left pending")
 	_check(head_rigid != null and (
 			not head_rigid.continuous_cd
 			or head_body.compound_boxes <= VoxelBody3D.LARGE_BODY_CCD_BOX_THRESHOLD
-		), "CCD solo permanece activo si el compound quedó por debajo del umbral adaptativo")
+		), "CCD remains active only if the compound is below the adaptive threshold")
 	_check(tower_mass > 500.0 and tower_mass < 20_000.0,
-		"el remanente de torre queda por debajo de 20 t, no supera 100 t como bloque macizo")
+		"the remaining tower weighs less than 20 t, not over 100 t as a solid block")
 	_check(head_body.compound_boxes <= world.physics_budget.max_boxes_per_body,
-		"la colisión móvil queda dentro del presupuesto por Body")
+		"moving collision stays within the per-Body budget")
 	var transform_sync_ms := PackedFloat64Array()
 	for _frame in 90:
 		await physics_frame
@@ -141,12 +141,12 @@ func _run() -> void:
 			_percentile(transform_sync_ms, 0.95), JSON.stringify(render_audit),
 		])
 		_check(bool(pose.get("valid", false)) and float(pose.scene_error_m) < 0.02,
-			"la pose renderizada de la torre sigue a Jolt")
+			"the tower's rendered pose follows Jolt")
 		_check(float(pose.get("effect_error_m", INF)) < 0.001,
-			"la hoja GPU no conserva una copia de pie")
+			"the GPU sheet does not retain an upright copy")
 		_check(String(render_audit.get("status", "DESYNC")) == "COHERENT" \
 			and float(render_audit.get("pending_gpu_update_age_ms", INF)) < 50.0,
-			"atlas, entradas, poses y cola Vulkan del mapa completo permanecen coherentes")
+			"the full map's atlas, entries, poses, and Vulkan queue remain coherent")
 	var recovery_physics_ms := PackedFloat64Array()
 	for _frame in 60:
 		await physics_frame
@@ -157,30 +157,30 @@ func _run() -> void:
 		)
 	var recovery_p95 := _percentile(recovery_physics_ms, 0.95)
 	var rope_diagnostics := ropes.get_diagnostics()
-	print("  la cabeza bajo %.2f m; física min/mediana/P95/max %.2f/%.2f/%.2f/%.2f ms; cables %s" % [
+	print("  head fell %.2f m; physics min/median/P95/max %.2f/%.2f/%.2f/%.2f ms; ropes %s" % [
 		head_drop, Array(recovery_physics_ms).min(), _percentile(recovery_physics_ms, 0.50),
 		recovery_p95, Array(recovery_physics_ms).max(), JSON.stringify(rope_diagnostics),
 	])
 	_check(int(rope_diagnostics.same_body_awake) == 0,
-		"ningún cable interno simula un resorte ni inyecta torque a la torre")
-	_check(head_drop > 0.5, "la cabeza cae físicamente, no solo cambia de estado")
+		"no internal rope simulates a spring or injects torque into the tower")
+	_check(head_drop > 0.5, "the head physically falls; it does not merely change state")
 	_check(world.get_metrics().pending_fragments == 0 \
 		and world.get_metrics().pending_collision_handoffs == 0,
-		"las colas críticas quedan drenadas")
+		"critical queues are drained")
 	var empty_dynamic := 0
 	for dynamic_body: VoxelBody3D in world.get_dynamic_bodies():
 		empty_dynamic += 1 if dynamic_body.get_total_voxels() == 0 else 0
 	_check(empty_dynamic == 0,
-		"no sobrevive ningún Body fantasma con cero voxeles y colisión antigua")
+		"no ghost Body survives with zero voxels and stale collision")
 
-	# El poste de tuberias: dos joints en el punto de union, que esta intacto.
-	print("\n=== poste de tuberia ===")
+	# The pipe pole: two joints at the connection point, which remains intact.
+	print("\n=== pipe pole ===")
 	var post := _bodies_near(world, Vector3(4.22, 6.4, -27.0), 0.3)[0]
 	var mine: Array[Dictionary] = []
 	for record in joints._records:
 		if record.get("owner_body") == post or record.get("other_body") == post:
 			mine.append(record)
-	print("  joints del poste: %d" % mine.size())
+	print("  pole joints: %d" % mine.size())
 	world.damage_sphere(Vector3(4.22, 2.2, -27.0), 1.6, 200.0)
 	for _frame in 30:
 		await physics_frame
@@ -188,8 +188,8 @@ func _run() -> void:
 	for record in mine:
 		if VoxelDoor3D._record_joint_is_live(record):
 			live += 1
-	print("  tras volar la base: %d de %d siguen vivos" % [live, mine.size()])
-	_check(live == mine.size(), "los joints intactos sobreviven a la transición del poste")
+	print("  after destroying the base: %d of %d remain live" % [live, mine.size()])
+	_check(live == mine.size(), "intact joints survive the post transition")
 	for _drain_frame in 120:
 		var metrics := world.get_metrics()
 		if int(metrics.pending_fragments) == 0 \
@@ -203,7 +203,7 @@ func _run() -> void:
 		and int(drained.pending_collision_handoffs) == 0 \
 		and int(drained.pending_collision_rebuilds) == 0 \
 		and int(drained.pending_collision_blocks) == 0,
-		"no quedan handoffs ni rebuilds abandonados al drenar Lee")
+		"no handoffs or rebuilds remain after draining Lee")
 	if failures == 0:
 		print("VOXEL_LEE_PHYSICS_REGRESSION_OK")
 	else:

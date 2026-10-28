@@ -26,7 +26,7 @@ func _ready() -> void:
 	_renderer = VoxelRenderSystem.new()
 	add_child(_renderer)
 	if not _renderer.setup(_world, $Camera3D):
-		push_error("No se pudo iniciar el DDA para el benchmark de burst")
+		push_error("Could not start DDA for the burst benchmark")
 		get_tree().quit(70)
 		return
 	RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), true)

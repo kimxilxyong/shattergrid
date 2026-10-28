@@ -1,29 +1,29 @@
 class_name VoxelJoints
 extends Node
-## Los `<joint>` del mapa: sobreviven a que un cuerpo cambie de `PhysicsBody` por debajo, se
-## transfieren al trozo que se queda el anclaje cuando algo se parte, y se rompen solo cuando
-## desaparecen los voxeles que los sujetan o cuando la fuerza los revienta.
+## Map `<joint>`s: they survive when a `PhysicsBody` is replaced underneath them, transfer to the
+## fragment that retains the anchor when something breaks, and break only when their supporting
+## voxels disappear or force breaks them.
 ##
-## Es el modelo de Teardown: al destruir, "los joints pueden transferirse a otras Shapes, soltarse o
-## desactivarse del todo", y cada rotura viaja como una orden explicita. Transferirse era la mitad
-## que faltaba. Un `Joint3D` de Godot guarda dos NodePath a dos `PhysicsBody3D`, y
-## `VoxelBody3D.make_dynamic()` reemplaza el suyo entero: volar la base de un poste lo pasaba a
-## dinamico y con eso mataba en silencio la union con la tuberia, aunque el punto de union estuviera
-## intacto tres metros mas arriba. Ahora se reata al cuerpo nuevo en el mismo frame.
+## This follows Teardown's model: during destruction, "joints can be transferred to other Shapes,
+## released, or deactivated entirely," and each break is an explicit event. Transfer was the missing
+## piece. A Godot `Joint3D` stores two NodePaths to `PhysicsBody3D`s, and `VoxelBody3D.make_dynamic()`
+## replaces the body entirely. Blowing away a post's base made it dynamic and silently broke its
+## connection to the pipe, even when the joint remained intact three meters above. It is now
+## rebound to the new body in the same frame.
 ##
-## Las puertas ya rompian sus bisagras por su cuenta ([VoxelDoor3D]) y comparten este mismo registro,
-## asi que lo que rompa uno lo ve el otro.
+## Doors already broke their hinges independently ([VoxelDoor3D]) and share this same registry, so
+## each system sees breaks made by the other.
 
 signal record_broken(record: Dictionary)
 
-## Separacion entre los dos anclajes a partir de la cual se da la union por reventada. Un joint sano
-## los mantiene encima; que se separen tanto solo pasa cuando el solver no puede con la carga, que es
-## el `strength` de Teardown medido por lo unico que Godot expone de una restriccion: cuanto la viola.
+## Separation between the two anchors at which the joint is considered broken. A healthy joint
+## keeps them closer; this much separation occurs only when the solver cannot handle the load. This
+## approximates Teardown's `strength` using the only constraint violation Godot exposes.
 const BREAK_SEPARATION := 0.5
 
-## Registros `{joint, attributes, transform, owner_body, other_body, broken}` que crea el importador,
-## mas `local_a`/`local_b`: el anclaje en el espacio de cada `PhysicsBody3D`, para saber donde esta
-## cuando el cuerpo se ha movido y para reconstruir el marco al reatar.
+## Importer-created `{joint, attributes, transform, owner_body, other_body, broken}` records, plus
+## `local_a`/`local_b`: each anchor's position in its `PhysicsBody3D` space, used to find it after
+## the body moves and reconstruct the frame when rebinding.
 var _records: Array[Dictionary] = []
 var _by_body := {}
 var broken_by_destruction := 0
@@ -59,9 +59,9 @@ func live_count() -> int:
 	return live
 
 
-## Despierta la isla de constraints de un mecanismo/vehículo sin mantener un polling global. Es
-## especialmente importante para remolques: el motor despierta el tractor explícitamente, mientras
-## que el remolque se importó dormido y depende de que el backend propague el wake a través del joint.
+## Wakes the constraint island of a mechanism/vehicle without global polling. This is especially
+## important for trailers: the engine explicitly wakes the tractor, while the trailer was imported
+## sleeping and relies on the backend to propagate wake through the joint.
 func wake_connected(source: VoxelBody3D, maximum_bodies := 24) -> int:
 	var bodies := connected_bodies(source, maximum_bodies)
 	for body in bodies:
@@ -69,9 +69,9 @@ func wake_connected(source: VoxelBody3D, maximum_bodies := 24) -> int:
 	return bodies.size()
 
 
-## La isla de cuerpos unidos por joints vivos a `source`, el propio incluido. Un vehiculo la usa
-## para saber que es "suyo": la torreta de un tanque o un remolque tienen que contar como parte del
-## vehiculo para la camara, para el hueco por donde sale el conductor y para el wake.
+## The island of bodies connected to `source` by live joints, including the source itself. Vehicles
+## use it to identify their components: a tank turret or trailer must count as part of the vehicle
+## for the camera, driver exit position, and wake-up logic.
 func connected_bodies(source: VoxelBody3D, maximum_bodies := 24) -> Array[VoxelBody3D]:
 	var result: Array[VoxelBody3D] = []
 	if source == null or not is_instance_valid(source) or maximum_bodies <= 0:
@@ -95,24 +95,24 @@ func connected_bodies(source: VoxelBody3D, maximum_bodies := 24) -> Array[VoxelB
 	return result
 
 
-## Rompe los joints que la onda alcanza y que ya no tienen material a los dos lados. Solo mira los
-## que caen dentro del radio, asi que un disparo cuesta lo que cuestan los joints de al lado.
+## Break joints reached by the blast that no longer have material on both sides. Only joints within
+## the radius are checked, so a shot costs only as much as the nearby joints.
 func on_impact(center: Vector3, blast_radius: float) -> int:
 	var broken := 0
 	for record in _records:
 		if not VoxelDoor3D._record_joint_is_live(record):
 			continue
-		# Algunas restricciones son parte de un mecanismo gobernado por gameplay. La corona de un
-		# tanque, por ejemplo, no es una viga que el solver pueda declarar rota al pasar por una pared:
-		# su controlador la libera explícitamente cuando el tanque recibe una explosión.
+		# Some constraints belong to gameplay-controlled mechanisms. A tank turret, for example, is
+		# not a beam the solver can break by passing it through a wall; its controller releases it
+		# explicitly when the tank is hit by an explosion.
 		if not bool(record.get("breakable", true)):
 			continue
 		var point := VoxelDoor3D._record_position(record)
 		var size := VoxelDoor3D._record_size(record)
 		if center.distance_to(point) > blast_radius + size:
 			continue
-		# Un joint sigue vivo mientras quede material a los dos lados. Si un lado se quedo sin
-		# voxeles alrededor del anclaje, ya no hay nada de que agarrarse.
+		# A joint remains live while material exists on both sides. If one side has no voxels around
+		# the anchor, there is nothing left to attach to.
 		if _side_has_material(record.get("owner_body"), point, size) \
 				and _side_has_material(record.get("other_body"), point, size):
 			continue
@@ -122,9 +122,9 @@ func on_impact(center: Vector3, blast_radius: float) -> int:
 	return broken
 
 
-## Lo unico que revienta una union intacta es la fuerza. Godot no expone la fuerza de una
-## restriccion, pero si su violacion: cuanto se separan los dos anclajes es proporcional a la carga
-## que el solver no consigue aguantar.
+## Force is the only thing that breaks an intact joint. Godot does not expose constraint force, but
+## it does expose constraint error: anchor separation is proportional to the load the solver cannot
+## withstand.
 func _physics_process(_delta: float) -> void:
 	for record in _records:
 		if not VoxelDoor3D._record_joint_is_live(record):
@@ -135,7 +135,7 @@ func _physics_process(_delta: float) -> void:
 		var other_body := record.get("other_body") as VoxelBody3D
 		if owner_body == null or other_body == null:
 			continue
-		# Dos cuerpos dormidos no se estan separando de nada.
+		# Two sleeping bodies are not separating.
 		if not owner_body.is_awake() and not other_body.is_awake():
 			continue
 		var a := _anchor_world(owner_body, record.get("local_a"))
@@ -154,33 +154,33 @@ func break_record(record: Dictionary) -> bool:
 		joint.queue_free()
 	record["joint"] = null
 	record["broken"] = true
-	# Los dos cuerpos tienen que enterarse: el que se suelta cae, y el que lo sujetaba pierde peso.
-	# Dormidos no notarian nada, que es como se quedaban flotando.
+	# Both bodies must be notified: the released one falls, and the one holding it loses weight.
+	# Sleeping bodies would notice nothing, leaving them floating.
 	for side in [record.get("owner_body"), record.get("other_body")]:
 		var body := side as VoxelBody3D
 		if body != null and is_instance_valid(body):
 			body.release_physics_hold(record.get("physics_hold_key", ""))
 			_unindex(record, body)
 			body.wake_for_interaction()
-			# `wake_for_interaction` solo revive cuerpos ya retirados. Una pieza STATIC sujeta unicamente
-			# por este joint sigue estatica hasta que alguien vuelve a evaluar su soporte.
+			# `wake_for_interaction` only revives retired bodies. A STATIC piece supported only by this
+			# joint remains static until its support is checked again.
 			if _world != null and is_instance_valid(_world):
 				_world.queue_support_check(body)
 	record_broken.emit(record)
 	return true
 
 
-## Un cuerpo que pasa a dinamico -o que se retira a estatico- estrena `PhysicsBody3D`, y los NodePath
-## del joint apuntan al viejo, que acaba de morir. Se reatan en el acto, antes de que el cuerpo se
-## haya movido, asi que el marco sigue siendo el bueno.
+## A body becoming dynamic—or being retired as static—gets a new `PhysicsBody3D`, leaving the joint's
+## NodePaths pointing at the old, now-dead body. Rebind immediately, before the body moves, so the
+## frame remains correct.
 func _on_body_state_changed(body: VoxelBody3D) -> void:
 	for record: Dictionary in _by_body.get(body.get_instance_id(), []):
 		_rebind(record)
 
 
-## Al partirse un cuerpo, el anclaje se va con el trozo que se quedo su material. Es el "los joints
-## pueden transferirse a otras Shapes" de Teardown: la union no muere por haberse partido el cuerpo,
-## cambia de dueño.
+## When a body splits, the anchor goes with the fragment that retained its material. This implements
+## Teardown's rule that "joints can be transferred to other Shapes": splitting the body does not
+## break the joint; ownership changes.
 func _on_body_split(source: VoxelBody3D, created: Array[VoxelBody3D]) -> void:
 	if source == null:
 		return
@@ -210,8 +210,8 @@ func _on_body_split(source: VoxelBody3D, created: Array[VoxelBody3D]) -> void:
 func _on_body_unregistered(body: VoxelBody3D) -> void:
 	if body == null:
 		return
-	# Un registro que sobrevivió al `body_split` no tiene heredero material. Mantenerlo dejaría un
-	# NodePath y una retención apuntando a un Body que está a punto de desaparecer.
+	# A record that survives `body_split` has no material heir. Keeping it would leave a NodePath and
+	# hold pointing to a Body that is about to disappear.
 	for record: Dictionary in _by_body.get(body.get_instance_id(), []).duplicate():
 		break_record(record)
 	_by_body.erase(body.get_instance_id())
@@ -268,9 +268,9 @@ func _rebind(record: Dictionary) -> void:
 	if a == null or b == null or a == b:
 		break_record(record)
 		return
-	# El marco se saca del anclaje tal y como esta AHORA, no de donde estaba al importar: Godot
-	# reconstruye la restriccion con la transformada que el nodo tenga al asignar los NodePath, y
-	# reatar con el marco viejo daria un tiron para recolocar los cuerpos en la pose de origen.
+	# Derive the frame from the anchor as it is NOW, not from its import-time position: Godot
+	# rebuilds the constraint using the node's transform when assigning NodePaths, and reconnecting
+	# with the old frame would jerk the bodies back to their original pose.
 	joint.global_transform = (a.global_transform * (record.get("local_a") as Transform3D)) \
 		.orthonormalized()
 	joint.node_a = joint.get_path_to(a)

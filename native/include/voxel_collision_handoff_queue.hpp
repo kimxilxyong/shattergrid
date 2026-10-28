@@ -25,8 +25,8 @@ class VoxelCollisionHandoffQueue : public Resource {
         double impulse_energy = 0.0;
         double impulse_radius = 0.0;
         int64_t ready_frame = -1;
-        // El fragmento ya fue liberado, pero el ticket conserva la prioridad de recocción del
-        // origen hasta que su revisión física alcance a la voxel.
+        // The fragment has already been released, but the ticket retains the source's recook
+        // priority until its physics revision catches up with the voxel revision.
         bool fragment_released = false;
     };
 

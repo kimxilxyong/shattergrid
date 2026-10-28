@@ -1,25 +1,27 @@
 class_name ScenarioLoader
 extends Node
-## Puebla el mundo al arrancar: intenta el mapa de Teardown y, si no esta disponible, levanta el
-## barrio incluido. Tambien es el dueño de la pantalla de carga, porque es lo unico que tarda.
+## Populates the world at startup: tries to load the Teardown map and falls back to the included
+## neighborhood if it is unavailable. Also owns the loading screen, since loading is the only slow
+## part.
 ##
-## El mapa opcional de Teardown se resuelve mediante `SHATTERGRID_MAP`,
-## `res://external/teardown_maps/lee/main.xml` o `--teardown-map=<ruta>`. Los datos originales no
-## forman parte del proyecto. `--no-teardown-map` fuerza el escenario incluido.
+## The optional Teardown map is resolved from `SHATTERGRID_MAP`,
+## `res://external/teardown_maps/lee/main.xml`, or `--teardown-map=<path>`. Original map data is not
+## part of the project. `--no-teardown-map` forces the included scenario.
 
-## Sin recorte: el mapa entero son 2312 Shapes y 79,3 M de voxeles, y con el atlas por bricks entra
-## en 296 MB usando 37 de las 256 capas disponibles. La primera carga compila la colision en
-## `user://`; las siguientes restauran la region inicial y precargan el resto por cercania.
-## `--teardown-radius=<metros>` sigue estando para volver a recortar cuando haga falta medir algo.
+## No crop: the full map has 2,312 Shapes and 79.3 M voxels; with the brick atlas it fits in 296 MB
+## using 37 of the 256 available layers. The first load compiles collision into `user://`; later
+## loads restore the initial area and preload the rest by proximity.
+## `--teardown-radius=<meters>` remains available for cropping when measurements require it.
 const TEARDOWN_MAP_RADIUS := INF
-const TEARDOWN_NOTICE := "ESTO ES PROPIEDAD DE TUXEDO LABS — solo investigación, no distribuir"
+const TEARDOWN_NOTICE := "PROPERTY OF TUXEDO LABS — research only, do not distribute"
 
-## Calle en el eje z con el jugador entrando por el sur. A 10 cm por voxel las fachadas miden 6,4 m y
-## los ejes a x=±7 dejan 7,6 m de calzada, por la que pasa el tanque (3,8 m de ancho).
+## Street along the z axis, with the player entering from the south. At 10 cm per voxel, facades
+## are 6.4 m tall; boundaries at x=±7 leave a 7.6 m road for the 3.8 m-wide tank.
 ##
-## Solo se repiten estos tres modelos: `casa_moderna` mide 2,4 m de alto y `casa_buhardilla` 3,0 m, o
-## sea menos que los 3,31 m del tanque. Son maquetas achatadas de los Metro Minis y junto a ellas el
-## tanque parecia gigante; repetir una casa creible engaña menos que alinear un barrio de casetas.
+## Only these three models are repeated: `casa_moderna` is 2.4 m tall and `casa_buhardilla` is
+## 3.0 m, both shorter than the tank at 3.31 m. They are flattened Mini Mike's Metro Minis models,
+## which made the tank look enormous beside them; repeating a believable house is less distracting
+## than lining up a neighborhood of sheds.
 const NEIGHBORHOOD := [
 	["casa_dos_plantas", Vector3(-7, 0, -4)],
 	["casa_barrio", Vector3(-7, 0, 5)],
@@ -28,8 +30,8 @@ const NEIGHBORHOOD := [
 	["casa_dos_plantas", Vector3(7, 0, 6)],
 ]
 
-## Viva mientras dure el arranque. El renderer la sigue usando despues de importar el mapa, asi que
-## el bootstrap la lee y la cierra con `close_loading()` cuando ya no queda nada que tapar.
+## Remains alive during startup. The renderer continues using it after map import, so the bootstrap
+## reads it and calls `close_loading()` once there is nothing left to cover.
 var loading: LoadingScreen
 
 var _world: VoxelWorld3D
@@ -60,7 +62,7 @@ func setup(
 	_hud = hud
 
 
-## Devuelve true si quedo cargado el mapa de Teardown, false si se levanto el barrio incluido.
+## Returns true if the Teardown map was loaded, false if the included neighborhood was built.
 func build() -> bool:
 	if await _load_teardown_map():
 		return true
@@ -72,23 +74,22 @@ func build() -> bool:
 	return false
 
 
-## La iluminacion leida del cielo del mapa se guarda al importar y se entrega al renderer aqui,
-## porque el renderer nace despues. Sin mapa no se toca nada y el efecto conserva sus valores por
-## defecto.
+## Lighting read from the map's sky is stored during import and passed to the renderer here because
+## the renderer is created later. Without a map, nothing changes and the effect keeps its defaults.
 func apply_environment_to(renderer: VoxelRenderSystem) -> void:
 	if _environment.sun_direction == Vector3.INF:
 		return
 	renderer.effect.sun_direction = _environment.sun_direction
 	renderer.effect.sun_color = _environment.sun_color
-	# El 1,05 lo llevaba el shader dentro del termino difuso; se conserva para no cambiar la
-	# exposicion al mismo tiempo que se cambia de donde sale la luz.
+	# The shader previously applied 1.05 in its diffuse term; keep it so changing the light source
+	# does not also change exposure.
 	renderer.effect.sun_energy = _sun.light_energy * 1.05
 	renderer.effect.ambient_sky = _environment.ambient_sky
 	renderer.effect.ambient_ground = _environment.ambient_ground
 
 
-## La pantalla tapa el arranque entero: importar el mapa y montar el renderer. Hasta aqui el arbol
-## estaba en pausa y la camara apagada para que los frames cedidos no repintasen un mundo a medias.
+## The screen covers all of startup: map import and renderer setup. Until this point the tree was
+## paused and the camera disabled so yielded frames would not redraw a partially built world.
 func close_loading() -> void:
 	if loading == null:
 		return
@@ -114,45 +115,46 @@ func _load_teardown_map() -> bool:
 	if path.is_empty() or not FileAccess.file_exists(path):
 		return false
 	var started := Time.get_ticks_msec()
-	# La importacion bloquea el hilo principal durante segundos. La pantalla se dibuja en los frames
-	# que el importador cede entre etapas; el arbol se pausa para que nada simule con el mapa a
-	# medias, y la camara se apaga para que esos frames no repinten el mundo a medio construir.
+	# Import blocks the main thread for seconds. The loading screen draws during frames yielded
+	# between importer stages; pause the tree so nothing simulates with a partial map, and disable
+	# the camera so those frames do not redraw a partially built world.
 	loading = LoadingScreen.new()
 	add_child(loading)
 	get_tree().paused = true
 	_camera.current = false
 	await get_tree().process_frame
-	# El importador es un tercio del arranque; el resto es el renderer, y lo reparte el bootstrap.
+	# The importer accounts for one third of startup; the bootstrap distributes the remaining
+	# renderer work.
 	loading.set_range(0.0, 0.30)
 	var report := await TeardownMapImporter.import_map_progressive(
 		_world, path, loading.report, Vector3.INF, radius, Vector3.ZERO, collision
 	)
 	if report.is_empty():
 		return false
-	# El suelo del banco de pruebas estorba en un mapa real: su malla es un cuadrado de 400 m del
-	# mismo gris y su colision un plano infinito en y=0, y el terreno de Lee sube y baja alrededor de
-	# esa altura, asi que asomaba por encima en losas de bordes rectos. Pero el plano en si vale como
-	# lecho de roca: se le quita la malla y se hunde bajo el punto mas bajo del mapa. Teardown no
-	# mete un voxel indestructible — su suelo es `rock`, que ya es indestructible aqui —, pero
-	# tampoco deja caer al vacio, y un plano infinito es la red mas barata que hay en Jolt.
+	# The test floor obstructs a real map: its mesh is a 400 m square in the same gray, and its
+	# collision is an infinite plane at y=0. Lee's terrain varies around that height, so the floor
+	# showed through as flat slabs with straight edges. The plane itself is useful as bedrock: remove
+	# its mesh and lower it beneath the map's lowest point. Teardown does not add an indestructible
+	# voxel—its floor is `rock`, already indestructible here—but it also prevents falling into the
+	# void, and an infinite plane is Jolt's cheapest safety net.
 	_ground.get_node("Mesh").queue_free()
 	_ground.position.y = _lowest_voxel_y() - 5.0
 	_environment.apply(
 		_world_environment, _sun, _world, report.get("environment", {}), path.get_base_dir(),
 		TEARDOWN_NOTICE
 	)
-	print("[%s] mapa importado en %d ms: %s"
+	print("[%s] map imported in %d ms: %s"
 		% [TEARDOWN_NOTICE, Time.get_ticks_msec() - started, JSON.stringify(report)])
-	# Se entra cayendo: el centro de recorte suele caer dentro de un edificio y aterrizar por
-	# gravedad evita quedarse encajado en la geometria.
+	# Spawn by falling: the crop center often lands inside a building, and gravity prevents getting
+	# stuck in the geometry.
 	_player.global_position = report.get("drop_in", Vector3.UP * 30.0)
 	_player.reset_physics_interpolation()
 	var boundary := _world.get_node_or_null("TeardownBoundary")
 	if boundary != null and boundary.has_method("set_tracked_actor"):
 		boundary.set_tracked_actor(_player)
-	# La entrada esta 30 m sobre el centro para no aparecer dentro de un edificio. Mirar horizontal
-	# desde esa altura solo enseña cielo y el Ground, y parecia que el atlas se activaba con el
-	# primer disparo cuando en realidad el movimiento de raton acababa apuntando hacia el mapa.
+	# The entry point is 30 m above the center to avoid spawning inside a building. Looking
+	# horizontally from that height shows only the sky and ground, making it seem as if the atlas
+	# activated on the first shot when mouse movement had actually aimed down at the map.
 	_camera.rotation.x = deg_to_rad(-35.0)
 	_hud.show_watermark(TEARDOWN_NOTICE)
 	if "--teardown-vehicles" in OS.get_cmdline_user_args():
@@ -160,16 +162,17 @@ func _load_teardown_map() -> bool:
 	return true
 
 
-## Prueba puntual de fisica: saca tres vehiculos del `.vox` compartido del mapa -coche pequeño, SUV
-## y muscle car- y los deja caer delante del punto de entrada, ya como cuerpos dinamicos de verdad.
-## Solo con `--teardown-vehicles`: no cambia el arranque normal. Igual que el resto del mapa, lee el
-## archivo desde su carpeta original fuera del repositorio; no copia ni guarda nada del vehiculo.
+## Focused physics test: extracts three vehicles from the map's shared `.vox` file—a small car, SUV,
+## and muscle car—and drops them in front of the entry point as actual dynamic bodies.
+## Enabled only with `--teardown-vehicles`; normal startup is unchanged. Like the rest of the map,
+## it reads the file from its original location outside the repository and does not copy or save
+## vehicle data.
 func _spawn_test_vehicles(map_folder: String) -> void:
 	var vox_dir := map_folder.path_join("vox")
-	# {etiqueta: [archivo, objeto]}. Cada vehiculo de Teardown trae su propio `.vox` -no comparten
-	# archivo aunque el nombre del objeto (`shapeNNN`) sea un contador global del mapa.
+	# {label: [file, object]}. Each Teardown vehicle has its own `.vox` file; they do not share files
+	# even though the object name (`shapeNNN`) uses a map-wide counter.
 	var vehicles := {
-		"coche pequeño": ["palette22.vox", "shape473", 1.5],
+		"small car": ["palette22.vox", "shape473", 1.5],
 		"suv": ["palette24.vox", "shape500", 2.0],
 		"muscle car": ["palette25.vox", "shape527", 2.0],
 	}
@@ -180,7 +183,7 @@ func _spawn_test_vehicles(map_folder: String) -> void:
 		var vox_path := vox_dir.path_join(entry[0])
 		var shape := TeardownMapImporter.load_named_shape(vox_path, entry[1], float(entry[2]))
 		if shape == null:
-			push_warning("--teardown-vehicles: no se encontró %s (%s) en %s"
+			push_warning("--teardown-vehicles: could not find %s (%s) in %s"
 				% [label, entry[1], vox_path])
 			continue
 		var body := VoxelBody3D.new()
@@ -192,11 +195,11 @@ func _spawn_test_vehicles(map_folder: String) -> void:
 		_world.register_body(body)
 		body.wake_for_interaction()
 		offset += 1
-	print("[%s] --teardown-vehicles: %d vehículos de prueba soltados junto al punto de entrada"
+	print("[%s] --teardown-vehicles: spawned %d test vehicles beside the entry point"
 		% [TEARDOWN_NOTICE, offset])
 
 
-## El punto mas bajo del mapa ya importado, para colocar el lecho de roca por debajo.
+## Lowest point in the imported map, used to place the bedrock below it.
 func _lowest_voxel_y() -> float:
 	var lowest := INF
 	for body in _world.get_children():

@@ -1,15 +1,16 @@
 class_name ColliderDebug3D
 extends MeshInstance3D
-## Dibuja en verde la malla de colision que hay delante de la mira. Si una mancha del suelo sale
-## enrejada, ahi hay geometria con colision y lo que falla es el dibujado; si sale limpia, al reves.
+## Draw the collision mesh in front of the crosshair in green. If a ground artifact appears as a
+## wireframe, collision geometry is present and rendering is at fault; if it appears clean, the
+## reverse is true.
 ##
-## `debug_collisions_hint` no sirve para esto: el escenario estatico lleva una CollisionShape3D por
-## macrocelda, casi un millon en el mapa entero, y pedirle a Godot el wireframe de todas cuelga el
-## arranque. Se dibujan solo las que rodean al jugador, preguntandole a Jolt cuales son.
+## `debug_collisions_hint` is unsuitable here: the static scene has one CollisionShape3D per
+## macrocell—nearly a million across the full map—and asking Godot to wireframe them all stalls
+## startup. Draw only those around the player, querying Jolt to find them.
 
-## Alcance del visor: es a la vez la distancia a la que se planta el cubo delante de la camara y su
-## medio lado, asi que cubre desde los pies hasta el doble de esa distancia hacia donde se mira. Se
-## dibuja la malla de triangulos real, cientos de vertices por forma, asi que va corto.
+## View distance: also the distance at which the box is placed in front of the camera and its
+## half-width, so it covers from the player's feet to twice that distance in the viewed direction.
+## The real triangle mesh is drawn, with hundreds of vertices per shape, so keep the range short.
 const REACH := 4.0
 
 ## Tope de vertices, para que un sitio muy poblado no congele el frame.
@@ -28,11 +29,11 @@ func setup(camera: Camera3D, exclude: Array[RID]) -> void:
 func _process(_delta: float) -> void:
 	if _camera == null:
 		return
-	# El volumen va delante de la camara y no centrado en el jugador: lo que queda a la espalda no se
-	# ve, y gastarlo ahi obliga a recortar el alcance justo donde si se esta mirando.
+	# Place the volume in front of the camera, not centered on the player: what is behind is not
+	# visible, and spending work there would reduce the range in the direction being viewed.
 	var center := _camera.global_position - _camera.global_basis.z * REACH
-	# Se rehace al moverse o al girar, que mueven el centro igual: reconstruir la malla en cada frame
-	# cuesta bastante mas que la consulta.
+	# Rebuild after movement or rotation, both of which move the center: rebuilding the mesh every
+	# frame costs much more than the query.
 	if _origin.distance_to(center) < 1.0:
 		return
 	_origin = center
@@ -54,10 +55,10 @@ func _process(_delta: float) -> void:
 		var collision := node as CollisionShape3D
 		if collision == null or collision.shape == null:
 			continue
-		# El escenario estatico no son cajas sino una malla de triangulos por macrocelda, asi que
-		# filtrar por BoxShape3D dejaba el visor vacio. Se dibuja el contorno real y no su caja
-		# envolvente: la caja de una malla irregular no dice donde esta la superficie, que es
-		# justamente lo que hay que comparar contra lo que se ve.
+		# The static scene uses a triangle mesh per macrocell, not boxes, so filtering for BoxShape3D
+		# left the viewer empty. Draw the actual outline rather than its bounding box: a box around an
+		# irregular mesh does not show where the surface is, which is exactly what must be compared
+		# with the rendered result.
 		var outline: ArrayMesh = collision.shape.get_debug_mesh()
 		if outline.get_surface_count() == 0:
 			continue

@@ -1,5 +1,5 @@
 extends SceneTree
-## Escala del mapa Lee sin pagar importación: 2.252 Shapes y trabajo baked pendiente.
+## Scale test for Lee's map without paying import costs: 2,252 Shapes and pending baked work.
 
 
 func _init() -> void:

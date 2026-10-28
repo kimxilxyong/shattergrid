@@ -9,13 +9,13 @@ class VoxelPhysicsBudget : public Resource {
 
     int target_awake_bodies = 128;
     int burst_awake_bodies = 192;
-    // Un colapso grande pasa de 84 a 28 hijos Jolt al pedir 64 cajas (la descomposición elige el
-    // siguiente pitch exacto). En Lee conservó la caída y redujo el P95 físico de 7,14 a 6,46 ms.
-    // El límite evita que un árbol/poste recién desprendido monopolice el narrow phase al tocar
-    // simultáneamente suelo y vehículo.
+    // A large collapse drops from 84 to 28 Jolt children when requesting 64 boxes (decomposition
+    // selects the next exact pitch). On Lee, it preserved the fall and reduced physics P95 from
+    // 7.14 to 6.46 ms. The limit prevents a newly detached tree/post from monopolizing the narrow
+    // phase when touching both the ground and a vehicle.
     int max_boxes_per_body = 64;
     int max_active_boxes = 8192;
-    // Hasta 31 voxeles son chips cosméticos. Desde 32 siguen siendo escombros rígidos,
+    // Up to 31 voxels become cosmetic chips. From 32 onward, fragments remain rigid debris,
     // seleccionables y agarrables.
     int particle_voxel_limit = 31;
     int structural_voxel_threshold = 64;

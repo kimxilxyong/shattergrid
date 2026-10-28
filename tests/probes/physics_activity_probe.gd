@@ -1,5 +1,5 @@
 extends SceneTree
-## Diagnóstico del coste físico permanente del mapa Lee, sin renderer.
+## Diagnose Lee map's persistent physics cost without a renderer.
 
 var MAP := VoxelProjectPaths.teardown_map_path()
 const SAMPLE_FRAMES := [1, 10, 60, 180]

@@ -1,58 +1,59 @@
 class_name TeardownMapImporter
 extends RefCounted
-## Carga un mapa de Teardown convertido (`main.xml` + `vox/`) sobre VoxelWorld3D.
+## Loads a converted Teardown map (`main.xml` + `vox/`) into VoxelWorld3D.
 ##
-## SOLO PARA INVESTIGACIÓN LOCAL. La geometría de los mapas es propiedad de Tuxedo Labs: este
-## script no incluye datos del juego; únicamente lee archivos que el usuario proporciona desde su
-## propia copia con licencia. Esos recursos locales se mantienen fuera del control de versiones.
+## FOR LOCAL RESEARCH ONLY. Map geometry is owned by Tuxedo Labs: this script includes no game data
+## and only reads files provided by the user from their own licensed copy. Those local resources are
+## kept outside version control.
 ##
-## Convenciones del formato, sacadas de Teardown-Converter (`write_scene.cpp`):
+## Format conventions, taken from Teardown-Converter (`write_scene.cpp`):
 ##
 ## * `rot="a b c"` son grados Euler compuestos como Rx(a)·Ry(b)·Rz(c) (`QuatEulerRad`).
-## * El `pos` de un `<vox>` no es la esquina del volumen: el conversor le suma medio ancho en x e y
-##   y luego gira el nodo 90 grados sobre X, porque MagicaVoxel es Z-arriba y Teardown Y-arriba.
-##   Queda centrado en X y Z y apoyado en Y, y ese giro implica que el eje `j` del array del
-##   archivo va hacia −Z en el mundo (de ahí el espejo en `set_cells_from_xyzi`).
-## * `<voxbox>` no lleva ninguna de las dos correcciones: su `pos` es la esquina tal cual.
-## * `scale` es el tamaño de voxel × 10, así que el voxel mide `scale * 0.1` metros.
-## * El eje de un `<joint>` es su +Z local, igual que en `HingeJoint3D` de Godot.
-## * La fisica sale de la banda de paleta; la apariencia sale de RGBA+MATL: ver [TeardownPalette].
+## * The `pos` of a `<vox>` is not the volume corner: the converter adds half the width in x and y,
+##   then rotates the node 90 degrees around X because MagicaVoxel is Z-up and Teardown is Y-up.
+##   The volume ends up centered on X and Z and resting on Y; this rotation means the file array's
+##   `j` axis points toward world −Z (hence the mirror in `set_cells_from_xyzi`).
+## * `<voxbox>` applies neither correction: its `pos` is the corner as-is.
+## * `scale` is voxel size × 10, so each voxel measures `scale * 0.1` meters.
+## * A `<joint>` axis is its local +Z, as with Godot's `HingeJoint3D`.
+## * Physics comes from the palette band; appearance comes from RGBA+MATL: see [TeardownPalette].
 ##
-## El mapa completo con colisión usa automáticamente `TeardownMapCache`. Primera ejecución:
-## construye y guarda las caras fusionadas. Siguientes: restaura la zona inicial y deja las regiones
-## lejanas en streaming. `--rebuild-teardown-cache`, `--no-teardown-cache` y
-## `--eager-teardown-cache` permiten depurar cada camino explícitamente.
+## The full map with collision automatically uses `TeardownMapCache`. The first run builds and saves
+## merged faces. Later runs restore the initial area and stream distant regions. The
+## `--rebuild-teardown-cache`, `--no-teardown-cache`, and `--eager-teardown-cache` flags let each path
+## be debugged explicitly.
 
 const DEFAULT_RADIUS := 45.0
 const TeardownBoundary := preload("res://scripts/teardown/teardown_boundary_3d.gd")
 const VoxelBodyScript := preload("res://scripts/voxel/voxel_body_3d.gd")
 const VoxelShapeScript := preload("res://scripts/voxel/voxel_shape_3d.gd")
 
-## Tope de celdas densas que se admite cargar. El mapa entero son 443 M de celdas y el motor
-## guarda un byte por celda, así que sin freno el import se come la RAM antes de terminar.
+## Maximum number of dense cells allowed to load. The full map has 443 M cells, and the engine
+## stores one byte per cell, so an unrestricted import would exhaust RAM before finishing.
 const CELL_BUDGET := 500_000_000
-## Radio en el que se busca a que cuerpo esta clavado el extremo de un tendido. Los `<location>` de
-## un `<rope>` caen sobre el aislador, no dentro del poste, asi que hace falta algo de holgura.
+## Radius used to find the body to which a cable endpoint is attached. `<location>` elements for a
+## `<rope>` land on the insulator, not inside the post, so some clearance is needed.
 const ANCHOR_SEARCH := 1.5
-## Al usar el caché solo esta zona entra a Jolt antes de soltar al jugador. El resto se precarga por
-## cercanía con presupuesto en `VoxelWorld3D`; 45 m cubren de sobra la caída inicial y el entorno.
+## When using the cache, only this area enters Jolt before the player is released. The rest is
+## prefetched by proximity under the `VoxelWorld3D` budget; 45 m easily cover the initial fall and
+## surrounding area.
 const INITIAL_COLLISION_RADIUS := 45.0
-## Una celda de 10 cm de un prop móvil describe su envolvente, no 1 litro macizo de acero/madera.
-## La muestra completa de Lee da la misma corrección para categorías independientes: coche pequeño
-## 33.868 -> 847 kg, SUV 61.316 -> 1.533 kg, muscle car 72.799 -> 1.820 kg, caja de madera
-## 1.316 -> 32,9 kg. El `density` XML sigue multiplicando esta base y las estructuras estáticas no
-## se tocan: sus fragmentos sí representan volumen estructural real.
+## A 10 cm cell in a mobile prop describes its envelope, not one solid liter of steel/wood. The full
+## Lee sample gives the same correction across independent categories: small car 33.868 -> 847 kg,
+## SUV 61.316 -> 1,533 kg, muscle car 72.799 -> 1,820 kg, wooden crate 1.316 -> 32.9 kg. XML
+## `density` still multiplies this base, and static structures are unchanged: their fragments do
+## represent real structural volume.
 const AUTHORED_DYNAMIC_FILL_SCALE := 0.025
-## Cada cuánto se le cede un frame al motor para que la pantalla de carga se repinte. El importador
-## es bloqueante: sin esto la ventana se queda congelada 9 s (35 s la primera vez) y parece colgada.
-## 200 ms dan ~45 frames en una carga caliente; el coste real se mide en `progress_ms`.
+## How often to yield a frame to the engine so the loading screen can redraw. The importer blocks:
+## without this, the window freezes for 9 s (35 s the first time) and appears hung. 200 ms yields
+## about 45 frames on a warm load; actual cost is measured by `progress_ms`.
 const PROGRESS_FRAME_INTERVAL := 200
-## Elementos raíz por tanda. El `<group>` grande de Lee trae 1539 hijos y en un solo bloque no
-## habría nada que enseñar durante la mitad de la carga.
+## Root elements per batch. Lee's large `<group>` has 1,539 children; processing them in one block
+## would leave nothing to show for half the loading time.
 const PROGRESS_CHUNK := 64
 
-## Tramos por cable. Con `slack` negativo la línea es recta y sobraría uno, pero los mapas con
-## holgura necesitan curva y ocho segmentos la dibujan sin que se note el quiebre.
+## Segments per cable. With negative `slack`, the line is straight and one segment would suffice,
+## but maps with slack need a curve, and eight segments render it without visible kinks.
 
 var _collision := true
 var _ropes: VoxelRopes
@@ -95,28 +96,28 @@ var _report := {
 }
 
 
-## `xml_path` es absoluta (el mapa vive fuera de res://). `center` y `radius` recortan alrededor de
-## un punto en coordenadas del mapa, y `offset` desplaza el mapa entero dentro del mundo.
+## `xml_path` is absolute (the map is outside res://). `center` and `radius` crop around a point in
+## map coordinates, and `offset` shifts the entire map within the world.
 static func import_map(
 	world: VoxelWorld3D, xml_path: String, center := Vector3.INF, radius := DEFAULT_RADIUS,
 	offset := Vector3.ZERO, collision := true
 ) -> Dictionary:
 	var importer := TeardownMapImporter.new()
 	importer._collision = collision
-	# `_run` solo cede frames cuando hay una pantalla de carga escuchando, así que aquí termina sin
-	# suspenderse nunca y devuelve el Dictionary. Se llama a través del `Callable` porque el
-	# analizador exige `await` ante cualquier corrutina, y eso obligaría a propagarlo a los 37
-	# bancos de pruebas que importan mapas sin interfaz.
+	# `_run` yields frames only when a loading screen is listening, so it completes here without
+	# suspending and returns the Dictionary. Call through `Callable` because the analyzer requires
+	# `await` for any coroutine, which would otherwise need to be propagated to all 37 test harnesses
+	# that import maps without a UI.
 	var result: Variant = importer._run.call(world, xml_path, center, radius, offset)
 	if result is Dictionary:
 		return result
-	push_error("TeardownMapImporter: la importación sin pantalla de carga se suspendió")
+	push_error("TeardownMapImporter: import without a loading screen was suspended")
 	return {}
 
 
-## Igual que [method import_map], pero cediéndole frames al motor para que se vea una pantalla de
-## carga. `progress` recibe `(fraccion: float, etiqueta: String, origen: String)`; `origen` solo
-## llega cuando cambia y dice si la colisión sale de la caché compilada o hay que construirla.
+## Like [method import_map], but yields frames to the engine so a loading screen can be shown.
+## `progress` receives `(fraction: float, label: String, source: String)`; `source` is sent only
+## when it changes and indicates whether collision comes from the compiled cache or must be built.
 static func import_map_progressive(
 	world: VoxelWorld3D, xml_path: String, progress: Callable, center := Vector3.INF,
 	radius := DEFAULT_RADIUS, offset := Vector3.ZERO, collision := true
@@ -131,7 +132,7 @@ func _run(
 	world: VoxelWorld3D, xml_path: String, center: Vector3, radius: float, offset: Vector3
 ) -> Dictionary:
 	_progress_last = Time.get_ticks_msec()
-	await _step(0.02, "Buscando caché compilada…")
+	await _step(0.02, "Looking for compiled cache…")
 	_compiled_cache_context = TeardownMapCache.prepare(
 		xml_path, center, radius, offset, _collision
 	)
@@ -151,7 +152,7 @@ func _run(
 	await _step(0.12, "Analizando main.xml…", _cache_source_text())
 	var root := _planner.parse_xml(xml_path)
 	if root.is_empty():
-		push_error("TeardownMapImporter: no se pudo abrir o analizar %s" % xml_path)
+		push_error("TeardownMapImporter: could not open or parse %s" % xml_path)
 		return {}
 	var folder := xml_path.get_base_dir()
 	var spawn := Vector3.ZERO
@@ -159,37 +160,37 @@ func _run(
 		if child.tag == "spawnpoint":
 			spawn = _planner.parse_vec3(child.attributes.get("pos", ""))
 		elif child.tag == "environment":
-			# Se pasan crudos: el `<environment>` no crea nada en el mundo de voxeles, lo aplica quien
-			# tenga el WorldEnvironment de la escena.
+			# Pass these through unchanged: `<environment>` creates nothing in the voxel world; the
+			# scene's WorldEnvironment applies them.
 			_report["environment"] = child.attributes
 	if center == Vector3.INF:
-		# El spawnpoint de Teardown no sirve como centro de recorte: en Lee está en el bosque del
-		# borde, a 103 m del centro geométrico, así que un radio de 25 m solo trae hierba y árboles.
-		# El centroide de la geometría cae en la fábrica, que es lo que interesa medir.
+		# Teardown's spawnpoint is not a useful crop center: Lee's is in the forest at the edge, 103 m
+		# from the geometric center, so a 25 m radius would include only grass and trees. The geometry
+		# centroid is in the factory, which is the area of interest.
 		center = _planner.centroid(root, Transform3D.IDENTITY)
-		# El recorte se centra solo en el plano del mapa. Restar también el centroide vertical hundía
-		# la mitad de Lee bajo el Ground opaco de la escena de prueba, dando la impresión de que el
-		# atlas estaba vacío hasta que el primer disparo/cambio de vista revelaba alguna cubierta.
+		# Center the crop only in the map plane. Subtracting the vertical centroid also sank half of
+		# Lee below the opaque Ground in the test scene, making the atlas appear empty until the first
+		# shot or view change revealed a roof.
 		center.y = 0.0
 	_report["spawnpoint"] = spawn - center + offset
-	# Se entra cayendo desde arriba: aterrizar por gravedad evita aparecer dentro de un edificio.
+	# Enter from above: landing under gravity avoids spawning inside a building.
 	_report["drop_in"] = offset + Vector3.UP * 30.0
-	# `boundary` usa puntos X/Z y pertenece al mismo marco del mapa. Antes se descartaba en `_visit`,
-	# lo que dejaba la geometría recentrada pero el nivel sin límite. Se transforma aquí una sola vez
-	# y el runtime lo representa con 31 cajas + un ArrayMesh en Lee.
-	await _step(0.16, "Trazando el límite del mapa…")
+	# `boundary` uses X/Z points in the map's frame. It used to be discarded in `_visit`, leaving the
+	# geometry recentered but the level without a boundary. Transform it once here; at runtime, Lee's
+	# boundary is represented by 31 boxes and an ArrayMesh.
+	await _step(0.16, "Tracing map boundary…")
 	var boundary_points := _planner.find_boundary_points(
 		root, Transform3D(Basis.IDENTITY, offset - center)
 	)
 	_create_boundary(world, boundary_points)
 
-	# Todo `<vox>` que no cuelga de un `<body>` es escenario fijo, igual que en Teardown.
+	# Every `<vox>` not under a `<body>` is static scenery, as in Teardown.
 	var context := {
 		"world": world, "folder": folder, "center": center, "radius": radius,
 		"offset": offset, "body": null, "dynamic": false, "body_attributes": {},
 	}
 	_report["visited_elements"] = await _traverse_scene(root.children, offset - center, context)
-	await _step(0.80, "Configurando vehículos…")
+	await _step(0.80, "Configuring vehicles…")
 	var vehicle_started := Time.get_ticks_usec()
 	_configure_vehicles()
 	_report["vehicle_config_ms"] = (Time.get_ticks_usec() - vehicle_started) / 1000.0
@@ -199,50 +200,49 @@ func _run(
 		_report.water_triangles = _water.get_triangle_count()
 		_report.water_area_m2 = snappedf(_water.get_total_area(), 0.01)
 
-	# `register_body` recorre las Shapes del cuerpo, así que se llama una sola vez por cuerpo y al
-	# final: hacerlo por Shape metería cada una dos veces en el árbol de bounding boxes.
-	await _step(0.84, "Registrando cuerpos en la física…")
+	# `register_body` scans a body's Shapes, so call it once per body at the end; calling it per Shape
+	# would insert each one twice into the bounding-box tree.
+	await _step(0.84, "Registering bodies with physics…")
 	var physics_budget := world.ensure_physics_budget()
 	var registered := {}
 	for entry: Dictionary in _bodies_bounds:
 		if not registered.has(entry.body):
 			registered[entry.body] = true
 			if entry.body.state == VoxelBody3D.State.DYNAMIC:
-				# Varias Shapes de un mismo `<body>` comparten compound. Reconstruirlo al añadir cada
-				# Shape era O(n²); se construye una vez cuando el cuerpo está completo.
+				# Multiple Shapes under the same `<body>` share a compound. Rebuilding it after each
+				# Shape was O(n²); build it once when the Body is complete.
 				entry.body.rebuild_dynamic_collision(physics_budget.max_boxes_per_body)
 			world.register_body(entry.body)
 	_report.imported_dynamic_bodies = 0
 	for body: VoxelBody3D in registered:
 		if body.state == VoxelBody3D.State.DYNAMIC:
 			_report.imported_dynamic_bodies += 1
-	await _step(0.88, "Tendiendo cables y juntas…")
+	await _step(0.88, "Setting up cables and joints…")
 	_build_ropes(world)
 	_resolve_joints(world)
 	if _water != null:
 		_water.setup(world)
-	# Los 632 `<body dynamic="true">` de Lee empiezan en reposo, como en Teardown: dormidos, no
-	# congelados. Dormidos no le cuestan nada a Jolt hasta que algo los toca, y siguen siendo cuerpos
-	# vivos — el jugador los empuja, las explosiones los tiran y los `<joint>` de las tuberías
-	# cuelgan de verdad desde el primer frame.
+	# Lee's 632 `<body dynamic="true">` elements start at rest, as in Teardown: asleep, not frozen.
+	# Asleep bodies cost Jolt nothing until touched, but remain dynamic—the player can push them,
+	# explosions can throw them, and pipe `<joint>`s really hang from the first frame.
 	for body: VoxelBody3D in registered:
 		if body.state != VoxelBody3D.State.DYNAMIC:
 			continue
 		var rigid := body.get_physics_body() as RigidBody3D
 		if rigid != null:
-			# Rozamiento del aire. Sin el, las cadenas de tuberia no se duermen nunca: son decenas de
-			# constraints encadenados y el solver no llega a converger del todo, asi que tiemblan
-			# milimetros para siempre. Medido en Lee: 65 cuerpos despiertos y quietos a perpetuidad.
+			# Air resistance. Without it, pipe chains never sleep: dozens of chained constraints keep
+			# the solver from fully converging, so they tremble by millimeters forever. Measured in
+			# Lee: 65 bodies stayed awake and motionless indefinitely.
 			if rigid.has_meta(VoxelDoor3D.BODY_META):
-				# Una puerta vive alrededor de su eje. El damping genérico de mecanismos encadenados
-				# la frenaba como si rozara el marco incluso después de perder la chapa.
+				# A door moves around its axis. Generic damping for chained mechanisms slowed it as if
+				# it were rubbing against the frame, even after losing its panel.
 				rigid.linear_damp = 0.12
 				rigid.angular_damp = 0.28
 			else:
 				rigid.linear_damp = 0.2
 				rigid.angular_damp = 1.0
 		body.sleep()
-	await _step(0.92, "Construyendo el índice estructural…")
+	await _step(0.92, "Building structural index…")
 	world.finalize_spatial_index()
 	if _compiled_cache_hit \
 			and not "--eager-teardown-cache" in OS.get_cmdline_user_args():
@@ -250,20 +250,20 @@ func _run(
 		_report["cache_prime_ms"] = prime.ms
 		_report["cache_prime_blocks"] = prime.blocks
 		_report["cache_pending_blocks"] = prime.pending_blocks
-	await _step(0.96, "Guardando la caché de colisiones…" if not _compiled_cache_hit \
-		else "Cargando la colisión inicial…")
+	await _step(0.96, "Saving collision cache…" if not _compiled_cache_hit \
+		else "Loading initial collision…")
 	_finish_compiled_cache()
 	_vox_cache.clear()
 	_report["progress_frames"] = _progress_frames
 	_report["progress_ms"] = snappedf(_progress_usec / 1000.0, 0.1)
-	await _step(1.0, "Listo")
+	await _step(1.0, "Ready")
 	return _report
 
 
-## Recorre la escena por tandas para poder ceder frames. Cada tanda vuelve a envolver los hijos en
-## un `<group>` sintético con los mismos atributos, así que el motor recalcula exactamente la misma
-## transformación que en una pasada única; lo único que cambia es que el grupo se visita varias
-## veces, y esas visitas de más se descuentan del recuento.
+## Traverses the scene in batches to yield frames. Each batch wraps its children in a synthetic
+## `<group>` with the same attributes, so the engine calculates exactly the same transform as in a
+## single pass. The only difference is that the group is visited multiple times, and those extra
+## visits are subtracted from the count.
 func _traverse_scene(roots: Array, translation: Vector3, context: Dictionary) -> int:
 	var base := Transform3D(Basis.IDENTITY, translation)
 	if not _progress.is_valid():
@@ -284,7 +284,7 @@ func _traverse_scene(roots: Array, translation: Vector3, context: Dictionary) ->
 		var cursor := 0
 		while cursor < children.size():
 			var slice := children.slice(cursor, cursor + PROGRESS_CHUNK)
-			# −1: el grupo sintético cuenta como visita en cada tanda, pero es el mismo elemento.
+			# −1: the synthetic group counts as a visit in each batch, but it is the same element.
 			visited += _scene_traversal.traverse([{
 				"tag": element.tag, "attributes": element.attributes, "children": slice,
 			}], base, context, _commit_element) - 1
@@ -296,22 +296,22 @@ func _traverse_scene(roots: Array, translation: Vector3, context: Dictionary) ->
 
 
 func _traverse_label(done: int, total: int) -> String:
-	return "Construyendo la escena…  %d/%d bloques" % [done, total]
+	return "Building scene…  %d/%d blocks" % [done, total]
 
 
 func _cache_source_text() -> String:
 	if not bool(_compiled_cache_context.get("enabled", false)):
-		return "Caché desactivada (--no-teardown-cache o importación parcial)"
+		return "Cache disabled (--no-teardown-cache or partial import)"
 	if _compiled_cache_hit:
-		return "Colisión desde caché · %.1f MB en %d ms" % [
+		return "Collision from cache · %.1f MB in %d ms" % [
 			_report.cache_bytes / 1048576.0, _report.cache_load_ms,
 		]
-	return "Sin caché: se compila el mapa entero (solo esta vez)"
+	return "No cache: compiling the entire map (once only)"
 
 
-## Devuelve al motor el control el tiempo justo para repintar, y solo si alguien está mirando. El
-## `await` no suspende cuando no hay `progress`, así que las llamadas sin pantalla siguen siendo
-## síncronas y devuelven el Dictionary directamente.
+## Yields to the engine just long enough to redraw, and only if a screen is being shown. `await`
+## does not suspend when no `progress` callback is set, so calls without a screen remain
+## synchronous and return the Dictionary directly.
 func _step(fraction: float, label: String, source := "") -> void:
 	if not _progress.is_valid():
 		return
@@ -369,7 +369,7 @@ func _commit_element(
 			var record := {
 				"attributes": attributes.duplicate(),
 				"transform": transform,
-				# Teardown conduce hacia -Z del elemento vehicle; VehicleBody3D usa MODEL_FRONT (+Z).
+				# Teardown's vehicle element faces -Z; VehicleBody3D uses MODEL_FRONT (+Z).
 				"physics_transform": transform * Transform3D(
 					Basis(Quaternion(Vector3.UP, PI)), Vector3.ZERO
 				),
@@ -395,27 +395,27 @@ func _commit_element(
 				child_context = context.duplicate()
 				child_context.vehicle_wheel = wheel
 		"vox", "voxbox":
-			# El `<joint>` cuelga del `<vox>`, así que sus hijos tienen que ver el cuerpo que acaba
-			# de crearse: en el escenario estático cada Shape estrena el suyo y no se cachea.
+			# The `<joint>` is nested under `<vox>`, so its children need to see the Body just created:
+			# in static scenery, each Shape gets a new Body that is not cached.
 			var made: VoxelBody3D = _add_vox(attributes, transform, context) if tag == "vox" \
 				else _add_voxbox(attributes, transform, context)
 			if made != null:
 				child_context = context.duplicate()
 				child_context.body = made
 		"body":
-			# `dynamic="true"` es lo que hace que una puerta, un bidón o una rueda sean un
-			# RigidBody3D de Jolt; el resto del escenario cuelga del cuerpo estático del mundo.
+			# `dynamic="true"` makes a door, barrel, or wheel a Jolt RigidBody3D; the rest of the
+			# scenery belongs to the world's static body.
 			child_context = context.duplicate()
-			# El cuerpo se crea en `_attach`, con la primera Shape que sobreviva al recorte por
-			# radio: el mapa entero tiene 632 `<body>` y casi todos caen fuera.
+			# The Body is created in `_attach`, with the first Shape that survives radius cropping:
+			# the full map has 632 `<body>` elements and almost all are outside the crop.
 			child_context.body = null
 			child_context.dynamic = attributes.get("dynamic", "false") == "true"
 			child_context.body_attributes = attributes
 			if child_context.dynamic:
 				_report.authored_dynamic_bodies += 1
 		"joint":
-			# Teardown solo guarda un extremo: el otro cuerpo lo resuelve al cargar por solape. Se
-			# aplaza hasta tener todos los cuerpos colocados y se busca por AABB.
+			# Teardown stores only one endpoint; resolve the other Body on load by overlap. Defer this
+			# until all bodies are placed, then search by AABB.
 			_pending_joints.append({
 				"attributes": attributes, "transform": transform, "body": context.body,
 			})
@@ -440,8 +440,8 @@ func _commit_element(
 					and _has_tag(String(attributes.get("tags", "")), "player"):
 				location_vehicle.seat_transform = transform
 			return {"visit_children": false}
-		# Disparadores, scripts Lua y pantallas no tienen equivalente; su geometría hija sí se
-		# recorre cuando corresponde.
+		# Triggers, Lua scripts, and screens have no equivalent; their child geometry is still
+		# traversed when appropriate.
 		"trigger", "screen", "boundary", "environment", \
 		"postprocessing", "spawnpoint", "vertex":
 			return {"visit_children": false}
@@ -449,9 +449,9 @@ func _commit_element(
 	return {"context": child_context, "visit_children": true}
 
 
-## Los `<vertex pos="x z">` de una superficie de Teardown viven sobre su plano XZ local. El nodo
-## conserva su `rot` (Lee usa -90° en Y) y se convierte a la misma referencia local del VoxelWorld
-## que el resto del mapa. La geometría queda agrupada por `VoxelWaterSystem` en un único draw call.
+## Teardown surface `<vertex pos="x z">` points lie on its local XZ plane. Preserve the node's `rot`
+## (Lee uses -90° around Y) and convert it to the same VoxelWorld-local frame as the rest of the map.
+## `VoxelWaterSystem` groups the geometry into a single draw call.
 func _add_water(element: Dictionary, transform: Transform3D, context: Dictionary) -> void:
 	var attributes: Dictionary = element.attributes
 	if attributes.get("type", "polygon") != "polygon":
@@ -513,9 +513,9 @@ func _add_vox(attributes: Dictionary, transform: Transform3D, context: Dictionar
 		return null
 	var source_size: Vector3i = model.size
 	var voxel_size := 0.1 * float(attributes.get("scale", "1"))
-	# El volumen en el marco del elemento: X e Y son las columnas x y z del archivo, y el eje y del
-	# archivo cae hacia −Z. Deshacer aquí el `axis_offset` del conversor deja el centro del volumen,
-	# que es justo el origen que espera VoxelShape3D.
+	# Volume in the element's frame: X and Y are the file's x and z columns, and the file's y axis
+	# points toward −Z. Undo the converter's `axis_offset` here to place the volume center at the
+	# origin expected by VoxelShape3D.
 	var center_offset := Vector3(
 		voxel_size * 0.5 * (source_size.x & 1),
 		voxel_size * 0.5 * source_size.z,
@@ -549,8 +549,8 @@ func _add_voxbox(attributes: Dictionary, transform: Transform3D, context: Dictio
 		return null
 	if not _accept(transform.origin, size, context):
 		return null
-	# Un `<voxbox>` es una caja maciza de un solo material y no pasa por MagicaVoxel, así que aquí
-	# no hay ni giro de 90 grados ni centrado: su `pos` es la esquina y sus ejes son los de Godot.
+	# A `<voxbox>` is a solid, single-material box and does not go through MagicaVoxel, so it needs
+	# neither a 90-degree rotation nor centering: its `pos` is the corner and its axes are Godot's.
 	var cells := PackedByteArray()
 	cells.resize(size.x * size.y * size.z)
 	cells.fill(1)
@@ -562,18 +562,18 @@ func _add_voxbox(attributes: Dictionary, transform: Transform3D, context: Dictio
 	var traits: Dictionary = TeardownPalette.MATERIALS.get(
 		material, TeardownPalette.MATERIALS["none"]
 	)
-	# Un `<voxbox>` lleva el material escrito en el XML, no en la banda de la paleta, asi que su
-	# mascara se arma a mano: todo el bloque es el indice 1, con el mismo metadato que escribe una
-	# paleta convertida para que `TeardownPalette.mask_for` no tenga que distinguir.
+	# A `<voxbox>` stores its material in XML, not in the palette band, so build its mask manually:
+	# the whole block uses index 1, with the same metadata as a converted palette so
+	# `TeardownPalette.mask_for` does not need to distinguish it.
 	var mask := PackedByteArray()
 	mask.resize(256)
 	mask.fill(1)
 	mask[1] = 0 if material in TeardownPalette.WALK_THROUGH else 1
 	palette.set_meta("collide_mask", mask)
 	var color := _planner.parse_vec3(attributes.get("color", "1 1 1"))
-	# El conversor escribe el material visual del voxbox con el mismo orden del G-buffer de
-	# Teardown: reflectividad, suavidad, metallic y emision. Aun no trazamos reflejos, pero
-	# conservamos roughness/metallic/emission en la paleta que consume el pase DDA.
+	# The converter writes the voxbox's visual material in Teardown G-buffer order: reflectivity,
+	# smoothness, metallic, and emission. Reflections are not traced yet, but preserve
+	# roughness/metallic/emission in the palette consumed by the DDA pass.
 	var pbr := _planner.parse_float_values(attributes.get("pbr", "0 0 0 0"), 4)
 	palette.set_material(1, {
 		"color": Color(color.x, color.y, color.z),
@@ -621,15 +621,15 @@ func _annotate_source(
 		body.set_meta("teardown_body_attributes", body_attributes.duplicate())
 
 
-## `collide="false"` en el XML de Teardown marca geometría atravesable. Cualquier otro valor, y su
-## ausencia, colisionan.
+## `collide="false"` in Teardown XML marks pass-through geometry. Any other value, including an
+## omitted attribute, enables collision.
 static func _collides(attributes: Dictionary) -> bool:
 	return String(attributes.get("collide", "true")) != "false"
 
 
-## Un `<rope>` son dos anclajes y una holgura, no voxeles. Se dibuja como línea suelta a propósito:
-## un cable no se destruye ni colisiona, y meterlo en el atlas gastaría macroceldas de sobra para
-## trazar una diagonal casi vacía — el tendido de la fábrica cruza 30 m en diagonal.
+## A `<rope>` consists of two anchors and some slack, not voxels. It is intentionally rendered as a
+## free line: a cable is neither destructible nor collidable, and adding it to the atlas would waste
+## macro-cells on a nearly empty diagonal—the factory cables span 30 m diagonally.
 func _add_rope(element: Dictionary, transform: Transform3D) -> void:
 	var anchors := PackedVector3Array()
 	for child: Dictionary in element.children:
@@ -637,14 +637,14 @@ func _add_rope(element: Dictionary, transform: Transform3D) -> void:
 			anchors.append(transform * _planner.parse_vec3(child.attributes.get("pos", "")))
 	if anchors.size() < 2:
 		return
-	# `slack` es la longitud sobrante en metros. En Lee los 79 tendidos van con -0,15, o sea tensos.
+	# `slack` is the extra length in meters. Lee's 79 cables use -0.15, meaning they are taut.
 	var slack := float(element.attributes.get("slack", "0"))
 	var strength := float(element.attributes.get(
 		"strength", str(VoxelRopes.DEFAULT_STRENGTH)))
 	var max_stretch := float(element.attributes.get(
 		"maxstretch", str(VoxelRopes.DEFAULT_MAX_STRETCH)))
-	# Los tramos se crean al final, no aqui: hay que saber a que cuerpo esta clavado cada extremo y
-	# el grupo `Ropes` del XML va antes que parte de la geometria que sujeta los cables.
+	# Create spans at the end, not here: the Body attached to each endpoint must be known, and the
+	# XML's `Ropes` group appears before some of the geometry holding the cables.
 	_pending_ropes.append({
 		"anchors": anchors, "slack": slack,
 		"strength": strength, "max_stretch": max_stretch,
@@ -652,9 +652,9 @@ func _add_rope(element: Dictionary, transform: Transform3D) -> void:
 	_report.ropes += 1
 
 
-## Busca el cuerpo que tiene voxeles de verdad bajo un anclaje. En Lee los `<rope>` viven en su
-## propio grupo con coordenadas de mundo, sin decir a que se enganchan, asi que el enganche se
-## resuelve por geometria — que es tambien lo que hace que funcione con cualquier mapa.
+## Find the Body with actual voxels beneath an anchor. In Lee, `<rope>` elements live in their own
+## group with world coordinates and do not specify what they attach to, so resolve attachments by
+## geometry; this also works with any map.
 func _body_near(position: Vector3, radius: float) -> VoxelBody3D:
 	var best: VoxelBody3D = null
 	var best_distance := INF
@@ -685,8 +685,8 @@ func _build_ropes(world: VoxelWorld3D) -> void:
 		var strength := float(pending.strength)
 		var max_stretch := float(pending.max_stretch)
 		for index in anchors.size() - 1:
-			# Solo los extremos del tendido se enganchan a un cuerpo; los nudos intermedios de un
-			# `<rope>` de varios tramos son puntos del propio cable.
+			# Only the endpoints are attached to a body; intermediate nodes in a multi-span `<rope>`
+			# are points along the cable itself.
 			var body_a := _body_near(anchors[index], ANCHOR_SEARCH) if index == 0 else null
 			var body_b := _body_near(anchors[index + 1], ANCHOR_SEARCH) \
 				if index == anchors.size() - 2 else null
@@ -701,20 +701,20 @@ func _build_ropes(world: VoxelWorld3D) -> void:
 	_ropes.settle()
 
 
-## Consume una entrada del artefacto en el mismo orden determinista del recorrido XML. La firma del
-## mapa ya cubre XML, `.vox`, binario nativo e implementación; el descriptor es una defensa extra
-## contra un caché truncado o corrupto.
+## Consumes an artifact entry in the same deterministic order as XML traversal. The map signature
+## already covers XML, `.vox`, native binary, and implementation; the descriptor is an additional
+## safeguard against a truncated or corrupt cache.
 func _take_compiled_collision(descriptor: String) -> Dictionary:
 	if not _compiled_cache_hit or _compiled_cache_broken:
 		return {"valid": false, "faces": []}
 	if _compiled_cache_cursor >= _compiled_cache_source.size():
-		_break_compiled_cache("faltan entradas para %s" % descriptor)
+		_break_compiled_cache("missing entries for %s" % descriptor)
 		return {"valid": false, "faces": []}
 	var entry: Dictionary = _compiled_cache_source[_compiled_cache_cursor]
 	_compiled_cache_cursor += 1
 	if String(entry.get("descriptor", "")) != descriptor \
 			or not entry.get("faces", null) is Array:
-		_break_compiled_cache("descriptor inesperado en %d" % (_compiled_cache_cursor - 1))
+		_break_compiled_cache("unexpected descriptor at %d" % (_compiled_cache_cursor - 1))
 		return {"valid": false, "faces": []}
 	var records := entry.faces as Array
 	_compiled_face_blocks += records.size()
@@ -738,7 +738,7 @@ func _break_compiled_cache(reason: String) -> void:
 	_compiled_cache_broken = true
 	_compiled_cache_hit = false
 	_report.cache_status = "invalid"
-	push_warning("TeardownMapImporter: caché compilado inválido (%s); se reconstruirá al arrancar de nuevo" % reason)
+	push_warning("TeardownMapImporter: invalid compiled cache (%s); it will be rebuilt on next launch" % reason)
 	TeardownMapCache.invalidate(_compiled_cache_context.get("path", ""))
 
 
@@ -747,7 +747,7 @@ func _finish_compiled_cache() -> void:
 		return
 	if _compiled_cache_hit:
 		if _compiled_cache_cursor != _compiled_cache_source.size():
-			_break_compiled_cache("sobran %d entradas" % (
+			_break_compiled_cache("%d extra entries" % (
 				_compiled_cache_source.size() - _compiled_cache_cursor
 			))
 		else:
@@ -766,7 +766,7 @@ func _finish_compiled_cache() -> void:
 		_report.cache_bytes = int(saved.get("bytes", 0))
 	else:
 		_report.cache_status = "save_failed"
-		push_warning("TeardownMapImporter: no se pudo guardar el caché compilado (%s)" % saved.get("error", ERR_CANT_CREATE))
+		push_warning("TeardownMapImporter: could not save compiled cache (%s)" % saved.get("error", ERR_CANT_CREATE))
 
 
 
@@ -809,9 +809,9 @@ func _attach(
 	return body
 
 
-## Convierte únicamente los `<vehicle>` con ruedas y sin tag `nodrive`. Barcos, excavadoras con
-## orugas y piezas decorativas conservan sus Bodies dinámicos normales; no reciben controles a
-## medias ni una suspensión inventada.
+## Converts only `<vehicle>` elements with wheels and without the `nodrive` tag. Boats, tracked
+## excavators, and decorative pieces retain their normal dynamic Bodies; they do not get partial
+## controls or an invented suspension.
 func _configure_vehicles() -> void:
 	for descriptor: Dictionary in _pending_vehicles:
 		var body := descriptor.get("body") as VoxelBody3D
@@ -836,10 +836,10 @@ static func _has_tag(tags: String, wanted: String) -> bool:
 	return false
 
 
-## Un objeto con nombre dentro de un `.vox` compartido del mapa, aislado del cuerpo `<body>` que lo
-## envolvia en el XML -pensado para sacar props sueltos (vehiculos, mobiliario) sin pasar por el
-## flujo completo de context/presupuesto de `import_map`. La ruta sigue siendo la del mapa original,
-## fuera del repositorio: no copia ni redistribuye nada, solo lee el mismo archivo bajo demanda.
+## Load a named object from a shared map `.vox`, isolated from the `<body>` that wrapped it in the
+## XML. This is intended for loading loose props (vehicles, furniture) without using the full
+## `import_map` context/budget flow. The path remains outside the repository and points to the
+## original map: nothing is copied or redistributed; the file is read on demand.
 static func load_named_shape(
 	vox_path: String, object_name: String, density_scale := 1.0
 ) -> VoxelShape3D:
@@ -859,9 +859,9 @@ static func load_named_shape(
 	shape.voxel_size = 0.1
 	shape.density_scale = maxf(density_scale, 0.001)
 	shape.physical_fill_scale = AUTHORED_DYNAMIC_FILL_SCALE
-	# Mismo giro de ejes que usa `_add_vox`: X/Z del volumen decodificado son las columnas x/y del
-	# archivo, y su eje Y cae hacia -Z. Deshacerlo aqui deja el centro del volumen en el origen, que
-	# es lo que espera VoxelShape3D.
+	# Use the same axis rotation as `_add_vox`: X/Z of the decoded volume are the file's x/y columns,
+	# and its Y axis points toward -Z. Undo it here to place the volume center at the origin expected
+	# by VoxelShape3D.
 	shape.transform = Transform3D(Basis.IDENTITY, Vector3(
 		0.05 * float(source_size.x & 1), 0.05 * float(source_size.z), -0.05 * float(source_size.y & 1)
 	))
@@ -873,7 +873,7 @@ func _resolve_joints(world: VoxelWorld3D) -> void:
 		var transform: Transform3D = pending.transform
 		var owner_body: VoxelBody3D = pending.body
 		if owner_body == null:
-			# Su Shape quedó fuera del radio, así que el joint no tiene a qué agarrarse.
+			# Its Shape was outside the radius, so the joint has nothing to attach to.
 			_report.skipped_joints += 1
 			continue
 		var joint_size := maxf(
@@ -898,8 +898,8 @@ func _resolve_joints(world: VoxelWorld3D) -> void:
 		if joint is SliderJoint3D:
 			frame.basis = _slider_basis(frame.basis)
 		joint.global_transform = frame
-		# El orden importa: Godot reconstruye la restricción al asignar los nodos y toma el marco
-		# de la transformada que el nodo tenga en ese momento.
+		# Order matters: Godot rebuilds the constraint when assigning the nodes and uses the frame
+		# from the node's transform at that moment.
 		joint.node_a = joint.get_path_to(owner_body.get_physics_body())
 		joint.node_b = joint.get_path_to(other.get_physics_body())
 		if joint is Generic6DOFJoint3D:
@@ -916,14 +916,14 @@ func _resolve_joints(world: VoxelWorld3D) -> void:
 			"broken": false,
 		})
 		_report.joints += 1
-	# Este gestor es el único dueño de la transición live -> broken. Las puertas consumen los mismos
-	# registros, pero nunca liberan un Joint/hold por fuera de él.
+	# This manager exclusively owns the live -> broken transition. Doors use the same records, but
+	# never release a Joint/hold outside it.
 	var joints := VoxelJoints.new()
 	joints.name = "TeardownJoints"
 	world.add_child(joints)
 	joints.add_records(_resolved_joint_records)
-	# Las puertas se conectan primero a `voxel_impact`: así ellas piden la rotura al gestor y emiten
-	# sus señales en la misma transición; el callback general verá después el registro ya roto.
+	# Connect doors to `voxel_impact` first so they request the break from the manager and emit their
+	# signals in the same transition; the general callback then sees the record already broken.
 	_create_doors(world)
 	joints.setup(world)
 
@@ -935,8 +935,8 @@ func _resolve_joints(world: VoxelWorld3D) -> void:
 func _create_doors(world: VoxelWorld3D) -> void:
 	var by_body := {}
 	for record: Dictionary in _resolved_joint_records:
-		# El XML no promete que el extremo dinámico quede en `owner_body`; depende del orden del
-		# recorrido espacial. Mirar un solo lado hacía que ciertas hojas nunca recibieran VoxelDoor3D.
+		# XML does not guarantee that the dynamic endpoint is `owner_body`; it depends on spatial
+		# traversal order. Checking only one side meant some door panels never received VoxelDoor3D.
 		for side_name in ["owner_body", "other_body"]:
 			var candidate := record.get(side_name) as VoxelBody3D
 			if candidate == null or candidate.state != VoxelBody3D.State.DYNAMIC:
@@ -966,12 +966,11 @@ func _create_doors(world: VoxelWorld3D) -> void:
 		_report.latched_doors += 0 if latch.is_empty() else 1
 
 
-## Los dos ball joints authored de una puerta no son resortes ni soldaduras: son dos puntos libres
-## que, por su separación vertical, definen un eje. Generic6DOF es útil para otros mecanismos que sí
-## usan `rotstrength`, pero Jolt puede resolver dos 6DOF lineales como un sistema redundante y dejar
-## la hoja prácticamente bloqueada. PinJoint3D expresa exactamente la intención y evita esas seis
-## restricciones angulares innecesarias. Los dos records siguen separados para poder destruir una
-## bisagra sin destruir la otra.
+## A door's two authored ball joints are neither springs nor welds: they are two free points that
+## define an axis through their vertical separation. Generic6DOF is useful for other mechanisms that
+## use `rotstrength`, but Jolt can solve two linear 6DOFs as a redundant system and leave the panel
+## almost locked. PinJoint3D expresses the intended behavior and avoids six unnecessary angular
+## constraints. Keep both records separate so one hinge can break without breaking the other.
 func _replace_door_ball_hinges(world: VoxelWorld3D, hinges: Array[Dictionary]) -> void:
 	for record: Dictionary in hinges:
 		var old_joint := record.get("joint") as Joint3D
@@ -1034,9 +1033,9 @@ func _make_joint(attributes: Dictionary) -> Joint3D:
 		"ball", "":
 			var ball := Generic6DOFJoint3D.new()
 			ball.name = "TeardownBall"
-			# Punto coincidente, pero rotación libre salvo por el resorte authored. PinJoint3D no
-			# puede representar `rotstrength`/`rotspring` y Jolt ignora sus parámetros de bias y
-			# damping, de modo que las cadenas acumulaban torsión sin ninguna resistencia angular.
+			# Coincident point, but free rotation except for the authored spring. PinJoint3D cannot
+			# represent `rotstrength`/`rotspring`, and Jolt ignores its bias and damping parameters, so
+			# chains accumulated torsion without any angular resistance.
 			for axis in 3:
 				_set_6dof_linear_locked(ball, axis)
 				_set_6dof_angular_free(ball, axis)
@@ -1110,9 +1109,9 @@ static func _configure_ball_joint(
 	if inertia_a >= 0.0 and inertia_b >= 0.0:
 		effective_inertia = inertia_a * inertia_b / maxf(0.0001, inertia_a + inertia_b)
 	effective_inertia = maxf(0.0001, effective_inertia)
-	# Se conserva la escala authored sin fingir unidades de Teardown: strength se interpreta como
-	# frecuencia natural² y rotspring como razón de amortiguamiento. Así k = I·ω² y c = 2ζIω se
-	# adaptan a la inercia real del cuerpo en vez de aplicar una constante igual a una taza y torre.
+	# Preserve the authored scale without pretending to use Teardown units: interpret strength as
+	# natural frequency² and rotspring as the damping ratio. This makes k = I·ω² and c = 2ζIω adapt
+	# to the body's actual inertia instead of applying the same constant to a cup and a tower.
 	var omega := TAU * sqrt(strength)
 	var stiffness := effective_inertia * omega * omega
 	var damping := 2.0 * clampf(float(attributes.get("rotspring", 0.0)), 0.0, 2.0) \
@@ -1141,8 +1140,8 @@ static func _body_mean_inertia(body: VoxelBody3D) -> float:
 	return maxf(0.0001, (inertia.x + inertia.y + inertia.z) / 3.0)
 
 
-## Un `SliderJoint3D` de Godot desliza sobre su X local, pero el eje de un joint de Teardown es su
-## +Z. Se corrige girando el nodo, no la geometría.
+## A Godot `SliderJoint3D` slides along its local X, but a Teardown joint's axis is +Z. Rotate the
+## node to correct this, not the geometry.
 static func _slider_basis(basis: Basis) -> Basis:
 	return basis * Basis(Quaternion(Vector3.UP, deg_to_rad(-90.0)))
 
@@ -1153,8 +1152,8 @@ func _palette_for(path: String) -> VoxelPalette:
 	return _palette_cache.get(path)
 
 
-## Devuelve `{nombre_de_objeto: {size, xyzi}}`. Los nombres son los `_name` de los nTRN, que es a lo
-## que apunta el atributo `object` de cada `<vox>` del XML.
+## Returns `{object_name: {size, xyzi}}`. Names come from the nTRN `_name` fields, which are what
+## each XML `<vox>` element's `object` attribute refers to.
 func _load_vox(path: String) -> Dictionary:
 	if _vox_cache.has(path):
 		return _vox_cache[path]
@@ -1162,7 +1161,7 @@ func _load_vox(path: String) -> Dictionary:
 	var result: Dictionary = parsed.get("models", {})
 	_vox_cache[path] = result
 	if not bool(parsed.get("ok", false)):
-		push_warning("TeardownMapImporter: falta %s" % path)
+		push_warning("TeardownMapImporter: missing %s" % path)
 		_palette_cache[path] = VoxelPalette.new()
 		return result
 	_palette_cache[path] = TeardownPalette.build(

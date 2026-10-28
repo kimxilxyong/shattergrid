@@ -62,8 +62,8 @@ private:
     mutable int64_t connectivity_classification_revision = -1;
     mutable std::vector<int> connectivity_node_offsets;
     mutable std::vector<int> connectivity_node_roots;
-    // Root -> cantidad de voxeles y pares (macro, etiqueta local). Evita volver a recorrer las
-    // miles de macroceldas de una Shape por cada candidato de contacto estructural.
+    // Root -> voxel count and (macrocell, local label) pairs. Avoids rescanning a Shape's thousands
+    // of macrocells for every structural contact candidate.
     mutable std::vector<int> connectivity_root_voxel_counts;
     mutable std::vector<std::vector<uint64_t>> connectivity_root_members;
 

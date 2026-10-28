@@ -4,7 +4,7 @@ const FIXTURE := "res://tests/fixtures/mass_policy_map.xml"
 
 
 func _run() -> void:
-	print("política de masa: props huecos frente a estructura sólida")
+	print("mass policy: hollow props versus solid structure")
 	var world := make_world(false)
 	TeardownMapImporter.import_map(world, ProjectSettings.globalize_path(FIXTURE),
 		Vector3.ZERO, 100.0, Vector3.ZERO, true)
@@ -12,7 +12,7 @@ func _run() -> void:
 	for body: VoxelBody3D in world.get_dynamic_bodies():
 		var attributes := body.get_meta("teardown_body_attributes", {}) as Dictionary
 		by_tag[String(attributes.get("tags", ""))] = body
-	_check(by_tag.size() == 3, "los tres props authored siguen siendo dinámicos")
+	_check(by_tag.size() == 3, "all three authored props remain dynamic")
 	var crate := by_tag.get("mass_crate") as VoxelBody3D
 	var tank := by_tag.get("mass_tank") as VoxelBody3D
 	var overridden := by_tag.get("mass_override") as VoxelBody3D
@@ -20,22 +20,22 @@ func _run() -> void:
 		var crate_mass := (crate.get_physics_body() as RigidBody3D).mass
 		var tank_mass := (tank.get_physics_body() as RigidBody3D).mass
 		var override_mass := (overridden.get_physics_body() as RigidBody3D).mass
-		print("  masas: caja=%.3f kg tanque=%.3f kg density=.25=%.3f kg" % [
+		print("  masses: crate=%.3f kg tank=%.3f kg density=.25=%.3f kg" % [
 			crate_mass, tank_mass, override_mass])
 		_check(is_equal_approx(crate_mass, 17.5),
-			"una caja de 1 m³ visual no pesa 700 kg: representa 17,5 kg de tablas")
+			"a visually 1 m³ box does not weigh 700 kg: it represents 17.5 kg of planks")
 		_check(is_equal_approx(tank_mass, 48.75),
-			"un tanque metálico visual no integra 10 cm de acero macizo")
+			"a visually metallic tank does not use 10 cm of solid steel")
 		_check(is_equal_approx(override_mass, 4.375),
-			"el density authored sigue multiplicando la masa efectiva")
+			"authored density still scales the effective mass")
 		var shape := overridden.get_shapes()[0] as VoxelShape3D
 		_check(is_equal_approx(shape.density_scale, 0.25) \
 			and is_equal_approx(shape.physical_fill_scale, 0.025),
-			"autoría XML y volumen efectivo permanecen como estados separados")
+			"XML authoring and effective volume remain separate states")
 		var detached := shape.detach_component(shape.data.get_live_indices())
 		_check(detached != null and is_equal_approx(
 			(detached as VoxelShape3D).physical_fill_scale, shape.physical_fill_scale
-		), "un fragmento del prop hereda su escala de masa")
+		), "a prop fragment inherits its mass scale")
 		if detached != null:
 			detached.free()
 	var static_mass := -1.0
@@ -53,17 +53,17 @@ func _run() -> void:
 				static_body = body
 				static_shape = shape
 	_check(is_equal_approx(static_mass, 700.0),
-		"la estructura soportada conserva densidad volumétrica canónica")
+		"the supported structure retains canonical volumetric density")
 	if static_body != null and static_shape != null:
 		static_body.make_dynamic(world.physics_budget.max_boxes_per_body)
 		var falling_mass := (static_body.get_physics_body() as RigidBody3D).mass
-		print("  estructura al caer: %.3f kg (antes %.3f kg)" % [falling_mass, static_mass])
+		print("  structure while falling: %.3f kg (was %.3f kg)" % [falling_mass, static_mass])
 		_check(is_equal_approx(static_shape.physical_fill_scale, 0.10) \
 			and is_equal_approx(falling_mass, 70.0),
-			"un fragmento estructural usa 10 % de llenado físico al volverse dinámico")
+			"a structural fragment uses 10% physical fill when becoming dynamic")
 		_check(static_body.continuous_collision \
 			and (static_body.get_physics_body() as RigidBody3D).continuous_cd,
-			"los fragmentos estructurales largos activan CCD contra soportes delgados")
+			"long structural fragments enable CCD against thin supports")
 	if failures == 0:
 		print("VOXEL_PROP_MASS_POLICY_SELFTEST_OK")
 	else:

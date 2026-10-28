@@ -42,8 +42,8 @@ class VoxelRuntimeRegistry : public Resource {
     std::unordered_map<int64_t, BodyRecord> bodies;
     std::unordered_map<int64_t, ShapeRecord> shapes;
     std::unordered_set<int64_t> baked_collision_pending;
-    // Sin este indice, borrar un cuerpo dejaba sus ShapeRecords huerfanos: `data` es un Ref, la
-    // revision canonica seguia avanzando en un fantasma y la coherencia lo reportaba para siempre.
+    // Without this index, removing a body left its ShapeRecords orphaned: `data` is a Ref, so the
+    // canonical revision kept advancing on a ghost and coherence reported it forever.
     std::unordered_map<int64_t, std::unordered_set<int64_t>> shapes_by_body;
     int dynamic_bodies = 0;
     int awake_bodies = 0;

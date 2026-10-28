@@ -80,7 +80,7 @@ void VoxelBrickPool::write_brick_cells(const VoxelShapeData &p_data, int p_slot,
     uint8_t *write = bytes.ptrw();
     const Vector3i texture = get_dimensions();
     const Vector3i origin = get_slot_origin(p_slot);
-    // Los bordes de la Shape dejan bricks a medias: el resto se queda en aire, que ya está puesto.
+    // Shape edges can leave partial bricks: the remainder stays as air, which is already set.
     const int span_x = MIN(BRICK, source_size.x - p_mx * BRICK);
     if (span_x <= 0) {
         return;
@@ -140,12 +140,12 @@ PackedInt32Array VoxelBrickPool::append_shape(const Ref<VoxelShapeData> &p_data)
     return table;
 }
 
-// Registrar una Shape subía sus bricks de uno en uno: 260.672 texturas de staging y 260.672
-// `texture_copy` para cargar el mapa de Teardown. `update_compact_regions` acepta una sola fuente
-// empaquetada y N copias, así que aquí se apilan los bricks a lo largo de Z — el brick i queda en
-// [512i, 512i+512), que es justo el orden que da un volumen de 8x8x8N — y se entrega la lista de
-// destinos. La tanda es de 256 bricks porque 8*256 = 2048 es el techo típico de profundidad de una
-// textura 3D y además es potencia de dos, así que el atlas no rellena nada.
+// Registering a Shape uploaded its bricks one at a time: 260,672 staging textures and 260,672
+// `texture_copy` calls to load the Teardown map. `update_compact_regions` accepts one packed source
+// and N copies, so bricks are stacked along Z here—the i-th brick occupies [512i, 512i+512), the
+// exact order for an 8x8x8N volume—and the destination list is supplied. Each batch contains 256
+// bricks because 8*256 = 2048 is the typical maximum depth of a 3D texture and is a power of two,
+// so the atlas needs no padding.
 Array VoxelBrickPool::extract_uploads(int p_base, int p_count) const {
     constexpr int CHUNK = 256;
     Array uploads;

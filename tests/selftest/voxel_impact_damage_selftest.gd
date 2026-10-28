@@ -1,6 +1,6 @@
 extends "res://tests/selftest/selftest.gd"
-## Un choque real de Jolt debe dañar a los dos volúmenes, una sola vez por contacto dominante, sin
-## convertirlo en explosión radial ni ejecutar mutaciones dentro de `_integrate_forces`.
+## A real Jolt collision must damage both volumes once per dominant contact, without turning into a
+## radial explosion or performing mutations inside `_integrate_forces`.
 
 
 func _make_body(
@@ -29,7 +29,7 @@ func _make_body(
 
 
 func _run() -> void:
-	print("daño voxel bidireccional por impacto")
+	print("bidirectional voxel impact damage")
 	var world := VoxelWorld3D.new()
 	world.show_diagnostics = false
 	world.impact_particles_enabled = false
@@ -60,15 +60,15 @@ func _run() -> void:
 		target_before, target_after, hammer_before, hammer_after,
 		world.physics_impacts, world.physics_impact_damage_ms,
 	])
-	print("  último contacto: ", world.last_physics_impact)
-	_check(world.physics_impacts > 0, "Jolt reporta el contacto dominante al World")
-	_check(target_after < target_before, "el objeto golpeado pierde voxeles")
-	_check(hammer_after < hammer_before, "el objeto que golpea también recibe daño")
+	print("  last contact: ", world.last_physics_impact)
+	_check(world.physics_impacts > 0, "Jolt reports the dominant contact to the World")
+	_check(target_after < target_before, "the struck object loses voxels")
+	_check(hammer_after < hammer_before, "the striking object also takes damage")
 	_check(int(world.get_metrics().pending_physics_impacts) == 0,
-		"la cola de impactos queda drenada")
+		"the impact queue is drained")
 
-	# Follaje/unphysical no tiene caras Jolt. Aun así, un cuerpo veloz debe detectarlo por contacto
-	# voxel exacto y abrirse paso; esta es la ruta torre metálica contra árbol.
+	# Foliage/unphysical has no Jolt faces. Even so, a fast body must detect it through exact voxel
+	# contact and break through; this is the metal tower versus tree path.
 	var foliage := _make_body(
 		world, Vector3i(5, 12, 5), Vector3(0, 4.0, 5.0), false, 0.6, 300.0
 	)
@@ -97,12 +97,12 @@ func _run() -> void:
 		if (foliage.shape as VoxelShape3D).voxel_count() < foliage_before:
 			break
 	var foliage_after := (foliage.shape as VoxelShape3D).voxel_count()
-	print("  follaje no-colisionable %d→%d  contactos=%d aabb=%s exacto=%s pos=%s" % [
+	print("  non-collidable foliage %d→%d  contacts=%d aabb=%s exact=%s pos=%s" % [
 		foliage_before, foliage_after, world.motion_contact_hits,
 		aabb_overlap_seen, exact_touch_seen, projectile_rigid.global_position,
 	])
 	_check(foliage_after < foliage_before,
-		"metal veloz destruye follaje aunque este no bloquee al jugador")
+		"fast-moving metal destroys foliage even though it does not block the player")
 	if failures == 0:
 		print("VOXEL_IMPACT_DAMAGE_SELFTEST_OK")
 	else:

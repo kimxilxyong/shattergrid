@@ -1,5 +1,5 @@
 extends "res://tests/selftest/selftest.gd"
-## Regresion sobre el SUV authored de Lee: XML -> VehicleBody -> suspension -> luces DDA.
+## Regression test for Lee's authored SUV: XML -> VehicleBody -> suspension -> DDA lights.
 
 var MAP := VoxelProjectPaths.teardown_map_path()
 const SUV_CENTER := Vector3(-16.1, 0.0, 21.5)
@@ -31,7 +31,7 @@ func _make_wood_wall(
 
 func _run() -> void:
 	if not FileAccess.file_exists(MAP):
-		printerr("VOXEL_VEHICLE_SELFTEST_SKIP falta copia local de Lee")
+		printerr("VOXEL_VEHICLE_SELFTEST_SKIP local copy of Lee is missing")
 		quit(0)
 		return
 	var world := VoxelWorld3D.new()
@@ -39,30 +39,30 @@ func _run() -> void:
 	world.show_diagnostics = false
 	root.add_child(world)
 	var report := TeardownMapImporter.import_map(world, MAP, SUV_CENTER, 8.0, Vector3.ZERO, true)
-	_check(int(report.get("vehicles_declared", 0)) >= 20, "se censan los vehicle del main.xml")
-	_check(int(report.get("vehicles_drivable", 0)) >= 1, "el SUV recortado se promueve a conducible")
+	_check(int(report.get("vehicles_declared", 0)) >= 20, "vehicles are counted from main.xml")
+	_check(int(report.get("vehicles_drivable", 0)) >= 1, "the cropped SUV is made drivable")
 	var vehicles := get_nodes_in_group(VoxelVehicle3D.GROUP)
-	_check(not vehicles.is_empty(), "existe un VehicleBody3D real")
+	_check(not vehicles.is_empty(), "a real VehicleBody3D exists")
 	if vehicles.is_empty():
 		_finish()
 		return
 	var vehicle := vehicles[0] as VoxelVehicle3D
-	# El recorte por origen de Shape puede excluir el gran terreno que atraviesa esta zona aunque el
-	# SUV sí entre. Un plano local a la cota authored aísla la prueba del tren motriz de ese detalle.
+	# Cropping by Shape origin can exclude the large terrain crossing this area even when the SUV is
+	# included. A local plane at the authored elevation isolates the drivetrain test from that detail.
 	make_box_body(root, Vector3(30.0, 0.4, 30.0), Vector3(0.0, 0.9, 0.0))
-	_check(vehicle.get_child_count() >= 4, "se crearon los cuatro raycasts de suspension")
+	_check(vehicle.get_child_count() >= 4, "all four suspension raycasts are created")
 	_check(vehicle.voxel_owner != null and vehicle.voxel_owner.get_physics_body() == vehicle,
-		"la carroceria destructible y el vehiculo comparten una sola verdad fisica")
+		"the destructible chassis and vehicle share a single source of physical truth")
 	var wheel_visual_body := vehicle.voxel_owner.get_meta(
 		"teardown_vehicle_visual_body"
 	) as VoxelBody3D
 	var wheel_visual_shapes := wheel_visual_body.get_shapes() \
 		if wheel_visual_body != null else [] as Array[VoxelShape3D]
 	_check(wheel_visual_shapes.size() >= 4,
-		"las cuatro ruedas authored conservan sus Shapes visuales")
+		"the four authored wheels retain their visual Shapes")
 	_check(wheel_visual_body != null and world.get_transform_tracked_body_ids().has(
 		wheel_visual_body.get_instance_id()
-	), "el renderer sigue las ruedas aunque su Body auxiliar este congelado")
+	), "the renderer tracks the wheels even when their auxiliary Body is frozen")
 	var transform_probe := VoxelTransformTracker.new()
 	var tracked_snapshot := transform_probe.collect(world.get_transform_tracked_body_ids())
 	var tracked_wheel_shapes := 0
@@ -74,43 +74,43 @@ func _run() -> void:
 				shape_variant as VoxelShape3D
 			).global_position
 	_check(tracked_wheel_shapes == wheel_visual_shapes.size(),
-		"todas las Shapes de rueda llegan al lote nativo de transformadas")
+		"all wheel Shapes reach the native transform batch")
 	_check(vehicle.wheel_visual_faces_outward(),
-		"llantas y tapacubos authored quedan orientados hacia fuera")
+		"authored tires and hubcaps remain oriented outward")
 	_check(vehicle.voxel_owner.continuous_collision,
-		"el vehículo conserva la capacidad de CCD contra paredes delgadas")
+		"the vehicle retains CCD against thin walls")
 	_check(vehicle.voxel_owner.compound_boxes <= VoxelVehicle3D.COLLISION_BOX_BUDGET,
-		"la carrocería usa como máximo %d cajas Jolt (usa %d)" % [
+		"the chassis uses at most %d Jolt boxes (uses %d)" % [
 			VoxelVehicle3D.COLLISION_BOX_BUDGET, vehicle.voxel_owner.compound_boxes,
 		])
 	_check(int(vehicle.voxel_owner.get_meta("voxel_shadow_interval_frames", 1)) \
 			== VoxelVehicle3D.SHADOW_UPDATE_INTERVAL_FRAMES,
-		"la sombra volumétrica vehicular se limita a 10 Hz sin limitar la geometría")
+		"vehicle volumetric shadows are limited to 10 Hz without limiting geometry")
 	vehicle.linear_velocity = Vector3(2.0, 0.0, 0.0)
 	vehicle.voxel_owner.update_adaptive_ccd()
-	_check(not vehicle.continuous_cd, "CCD permanece apagado a baja velocidad")
+	_check(not vehicle.continuous_cd, "CCD remains disabled at low speed")
 	vehicle.linear_velocity = Vector3(VoxelVehicle3D.CCD_MIN_SPEED + 1.0, 0.0, 0.0)
 	vehicle.voxel_owner.update_adaptive_ccd()
-	_check(vehicle.continuous_cd, "CCD se activa cuando existe riesgo de atravesar una pared")
+	_check(vehicle.continuous_cd, "CCD is enabled when there is a risk of passing through a wall")
 	vehicle.linear_velocity = Vector3.ZERO
 	vehicle.voxel_owner.update_adaptive_ccd()
 	_check(vehicle.mass > 900.0 and vehicle.mass < 2600.0,
-		"la masa vehicular queda en un rango plausible (%.1f kg)" % vehicle.mass)
+		"vehicle mass is within a plausible range (%.1f kg)" % vehicle.mass)
 	_check(is_equal_approx(vehicle.impact_strength, 8.0),
-		"se conserva strength=8 authored para el perfil de choque del SUV")
+		"the authored strength=8 is retained for the SUV's crash profile")
 	_check(vehicle.center_of_mass.y < 0.7,
-		"el centro de masa queda bajo para no volcar en giros")
+		"the center of mass is low enough to prevent rollover while turning")
 	_check(vehicle.projected_light_count() >= 6,
-		"faros, freno y reversa son Light3D proyectadas")
+		"headlights, brake lights, and reverse lights are projected Light3D nodes")
 	var driver := Node3D.new()
 	root.add_child(driver)
-	_check(vehicle.set_driver(driver), "un conductor puede ocupar el asiento")
-	_check(vehicle.headlights_active(), "al entrar se encienden los faros")
+	_check(vehicle.set_driver(driver), "a driver can take the seat")
+	_check(vehicle.headlights_active(), "the headlights turn on when entering")
 	vehicle.set_control_override(true, 1.0, 0.35, false)
 	for _frame in 3:
 		await physics_frame
-	_check(vehicle.engine_force > 0.0, "W acelera y entrega fuerza al tren motriz")
-	_check(absf(vehicle.steering) > 0.01, "A/D mueven la direccion")
+	_check(vehicle.engine_force > 0.0, "W accelerates and applies force to the drivetrain")
+	_check(absf(vehicle.steering) > 0.01, "A/D move the steering")
 	var drive_start := Vector2(vehicle.global_position.x, vehicle.global_position.z)
 	for _frame in 90:
 		await physics_frame
@@ -118,7 +118,7 @@ func _run() -> void:
 		Vector2(vehicle.global_position.x, vehicle.global_position.z)
 	)
 	_check(planar_distance > 0.35,
-		"la suspension transmite la fuerza al suelo (avance %.2f m)" % planar_distance)
+		"the suspension transfers force to the ground (travel %.2f m)" % planar_distance)
 	var moved_snapshot := transform_probe.collect(world.get_transform_tracked_body_ids())
 	var moved_wheel_visuals := 0
 	for index in mini(moved_snapshot.shapes.size(), moved_snapshot.transforms.size()):
@@ -130,37 +130,37 @@ func _run() -> void:
 				> 0.35:
 			moved_wheel_visuals += 1
 	_check(moved_wheel_visuals == wheel_visual_shapes.size(),
-		"los visuales de rueda avanzan con el coche hasta el renderer")
+		"the wheel visuals move with the car in the renderer")
 	var contacts := 0
 	for wheel: Dictionary in vehicle.get_wheel_telemetry():
 		contacts += 1 if bool(wheel.contact) else 0
-	_check(contacts >= 2, "al menos dos ruedas conservan contacto al girar")
+	_check(contacts >= 2, "at least two wheels maintain contact while turning")
 	_check(vehicle.global_basis.y.normalized().dot(Vector3.UP) > 0.55,
-		"el centro de masa rebajado evita un vuelco inmediato")
+		"the lowered center of mass prevents an immediate rollover")
 	_check(is_zero_approx(VoxelVehicle3D.contact_normal_speed(
 		Vector3(14.0, 0.0, 0.0), Vector3.UP
-	)), "rodar tangencialmente sobre el suelo no genera daño voxel")
+	)), "rolling tangentially across the ground does not cause voxel damage")
 	_check(is_equal_approx(VoxelVehicle3D.contact_normal_speed(
 		Vector3(0.0, -4.0, 0.0), Vector3.UP
-	), 4.0), "la velocidad que cierra la normal sí se reconoce como impacto")
+	), 4.0), "velocity along the normal is recognized as an impact")
 	var impact_profile := VoxelWorld3D.physics_impact_profile(
 		vehicle.voxel_owner, 400.0, 3.0
 	)
 	_check(bool(impact_profile.get("vehicle", false)) \
 			and float(impact_profile.get("radius", 0.0)) >= 1.0,
-		"el SUV abre un paso frontal de tamaño vehicular a velocidad urbana")
+		"the SUV makes a vehicle-sized opening at urban speeds")
 	vehicle.set_control_override(true, 0.0, 0.0, true)
 	await physics_frame
 	_check(vehicle.brake > vehicle.coast_brake and vehicle.brake_lights_active(),
-		"el freno de mano aplica fuerza y proyecta luz roja")
+		"the handbrake applies force and projects red light")
 	vehicle.linear_velocity = Vector3.ZERO
 	vehicle.set_control_override(true, -1.0, 0.0, false)
 	await physics_frame
 	_check(vehicle.engine_force < 0.0 and vehicle.reverse_lights_active(),
-		"la marcha atras entrega fuerza e ilumina en blanco")
+		"reverse gear applies force and lights up white")
 
-	# Choque real (no una llamada directa al daño): acelera el SUV contra un paño de madera de 30 cm.
-	# Esto cubre contacto Jolt -> velocidad normal -> cola diferida -> perfil vehicular -> cráter.
+	# A real collision (not a direct damage call): accelerate the SUV into a 30 cm wooden wall.
+	# This covers Jolt contact -> normal velocity -> deferred queue -> vehicle profile -> crater.
 	vehicle.linear_velocity = Vector3.ZERO
 	vehicle.angular_velocity = Vector3.ZERO
 	var crash_forward := vehicle.forward_direction()
@@ -179,15 +179,15 @@ func _run() -> void:
 		if is_instance_valid(wall_shape) and wall_shape.voxel_count() < wall_before:
 			break
 	var wall_after := wall_shape.voxel_count() if is_instance_valid(wall_shape) else 0
-	print("  choque vehículo: pared %d→%d posición=%s pared_pos=%s velocidad=%.2f" % [
+	print("  vehicle collision: wall %d→%d position=%s wall_pos=%s speed=%.2f" % [
 		wall_before, wall_after, vehicle.global_position, wall_center, vehicle.linear_velocity.length(),
 	])
 	_check(world.physics_impacts > impacts_before and wall_after < wall_before,
-		"el coche atraviesa madera normal mediante un contacto Jolt real")
+		"the car breaks through ordinary wood via real Jolt contact")
 	_check(vehicle.voxel_owner.get_total_voxels() == vehicle_before,
-		"el perfil frontal no perfora la propia carrocería al abrir madera")
+		"the frontal profile does not pierce its own chassis when breaking wood")
 	_check(String(world.last_physics_impact.get("kind", "")) == "vehicle",
-		"el diagnóstico distingue el impacto vehicular")
+		"diagnostics identify the vehicle impact")
 	vehicle.set_control_override(true, 0.0, 0.0, true)
 	await physics_frame
 
@@ -201,12 +201,12 @@ func _run() -> void:
 		await process_frame
 	var metadata := pool.get_shader_metadata()
 	_check(int(metadata[VoxelLocalShadowPool.MAX_LIGHTS * 16]) >= 2,
-		"los faros llegan al pase DDA voxel")
+		"the headlights reach the voxel DDA pass")
 	_check(int(metadata[VoxelLocalShadowPool.MAX_LIGHTS * 16 + 1]) == 0,
-		"los faros moviles no recocinan volumenes 128^3 por frame")
+		"moving headlights do not rebake 128^3 volumes every frame")
 	vehicle.clear_driver(driver)
 	vehicle.set_control_override(false)
-	_check(not vehicle.headlights_active(), "al salir se apagan las luces")
+	_check(not vehicle.headlights_active(), "exiting turns off the headlights")
 	var level := Node3D.new()
 	var hud := CanvasLayer.new()
 	hud.name = "HUD"
@@ -235,38 +235,39 @@ func _run() -> void:
 	var original_fov := player_camera.fov
 	player.call("_toggle_vehicle")
 	_check(bool(player.call("is_driving_vehicle")) and player.collision_layer == 0,
-		"E ocupa el vehículo y desactiva la cápsula del jugador")
-	_check(vehicle.headlights_active(), "la ruta real de E también enciende faros")
+		"E enters the vehicle and disables the player's capsule")
+	_check(vehicle.headlights_active(), "the actual E input also turns on the headlights")
 	var rig := player.get("_vehicle_camera") as VehicleCamera
 	var pitch_before := rig.pitch
 	_check(VehicleCamera.pitch_after_input(pitch_before, 12.0, 0.0022) > pitch_before,
-		"el eje vertical del orbitador quedó invertido")
-	# La sensibilidad escala con tan(fov/2): al hacer zoom el mismo gesto debe girar menos.
+		"the orbit camera's vertical axis was inverted")
+	# Sensitivity scales with tan(fov/2): zooming in should make the same gesture turn less.
 	_check(VehicleCamera.aim_sensitivity(30.0) < VehicleCamera.aim_sensitivity(78.0),
-		"la sensibilidad no baja al hacer zoom")
+		"sensitivity decreases when zooming in")
 	var zoom_in := InputEventMouseButton.new()
 	zoom_in.button_index = MOUSE_BUTTON_WHEEL_UP
 	zoom_in.pressed = true
 	for _step in 8:
 		player.call("_unhandled_input", zoom_in)
-	_check(rig.is_interior(), "la rueda lleva el zoom hasta la vista interior")
+	_check(rig.is_interior(), "the wheel zooms all the way to the interior view")
 	rig.update(1.0, player_camera, vehicle, [] as Array[RID])
 	_check(player_camera.global_position.distance_to(vehicle.get_driver_view_position()) < 0.15,
-		"la vista interior usa el punto de conductor authored del XML")
+		"the interior view uses the XML-authored driver position")
 	player.call("_toggle_vehicle")
 	_check(not bool(player.call("is_driving_vehicle")),
-		"un segundo E baja al jugador del vehículo")
-	# La cápsula sale con la colisión apagada a propósito y `_restore_vehicle_collision` la devuelve
-	# dos `_physics_process` después: mirarla en el mismo tick medía el apagado, no la restitución.
+		"a second E makes the player exit the vehicle")
+	# The capsule exits with collision deliberately disabled, and `_restore_vehicle_collision` restores it
+	# Two `_physics_process` calls later: checking in the same tick measured the deactivation, not restoration.
 	for _frame in 3:
 		await physics_frame
 	_check(player.collision_layer != 0,
-		"la cápsula recupera su colisión tras la salida")
+		"the capsule regains collision after exiting")
 	_check(is_equal_approx(player_camera.fov, original_fov),
-		"salir restaura el FOV de la cámara a pie")
+		"exiting restores the on-foot camera FOV")
 
-	# Regresión de la captura: con el coche de lado, su eje local X apunta contra el suelo. La salida
-	# antigua sumaba ese eje al asiento y colocaba la cápsula debajo del mapa al pulsar E en marcha.
+	# Regression test for the capture: when the car is on its side, its local X axis points into the
+	# ground. The old exit code added that axis to the seat position and placed the capsule under the
+	# map when pressing E while moving.
 	vehicle.freeze = true
 	vehicle.global_position = Vector3(0.0, 2.0, 0.0)
 	vehicle.rotation = Vector3(0.0, 0.0, PI * 0.5)
@@ -277,13 +278,13 @@ func _run() -> void:
 	player.call("_toggle_vehicle")
 	_check(player.global_position.y >= 1.1 \
 			and player.global_position.distance_to(vehicle.global_position) > 1.5,
-		"salir de un coche volcado en movimiento deja al jugador sobre el piso y fuera del compound")
+		"exiting a moving, overturned car leaves the player above the floor and outside the compound")
 	vehicle.freeze = false
 
 	vehicle.sleeping = true
 	vehicle.park_after_sleep()
 	_check(not vehicle.is_physics_processing(),
-		"el coche estacionado suspende su controlador GDScript")
+		"the parked car suspends its GDScript controller")
 	vehicle.apply_central_impulse(Vector3(120.0, 0.0, 0.0))
 	for _frame in 2:
 		await physics_frame
@@ -292,7 +293,7 @@ func _run() -> void:
 	vehicle.voxel_owner.queue_free()
 	await process_frame
 	_check(not is_instance_valid(wheel_visual_body),
-		"destruir la carrocería limpia también las ruedas visuales")
+		"destroying the chassis also cleans up the visual wheels")
 	_finish()
 
 

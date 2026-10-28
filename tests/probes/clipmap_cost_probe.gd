@@ -1,6 +1,6 @@
 extends SceneTree
-## Cuánto cuesta rasterizar la clipmap de sombras en GDScript, que es lo que deja el arranque en
-## negro con el mapa entero. Se mide sobre un recorte y se extrapola: medirlo entero es el cuelgue.
+## Cost of rasterizing the shadow clipmap in GDScript, which leaves startup black with the full map.
+## Measure a subset and extrapolate; measuring the whole map would hang.
 
 var XML := VoxelProjectPaths.teardown_map_path()
 const FULL_MAP_VOXELS := 79_344_317
@@ -12,8 +12,8 @@ func _initialize() -> void:
 	root.add_child(world)
 	TeardownMapImporter.import_map(world, XML, Vector3.INF, 25.0, Vector3.ZERO, false)
 
-	# VoxelShape3D no es un nodo del árbol, así que `global_transform` avisa y devuelve identidad:
-	# se compone a mano con la del cuerpo.
+	# VoxelShape3D is not a tree node, so `global_transform` warns and returns identity; compose it
+	# manually from the body's transform.
 	var shapes: Array[VoxelShape3D] = []
 	var transforms: Array[Transform3D] = []
 	for body in world.get_children():
@@ -22,7 +22,7 @@ func _initialize() -> void:
 				shapes.append(shape)
 				transforms.append((body as Node3D).transform * shape.transform)
 
-	# Mismo cuerpo de bucle que `_rasterize_shape_level`, sin escribir en la textura.
+	# Same loop body as `_rasterize_shape_level`, without writing to the texture.
 	var target := PackedByteArray()
 	target.resize(256 * 256 * 256)
 	var cell_size := 0.1
@@ -54,10 +54,10 @@ func _initialize() -> void:
 	var elapsed := (Time.get_ticks_usec() - started) / 1e6
 
 	var rate := voxels / elapsed
-	print("RECORTE %d shapes  %d voxeles  %.2f s  = %.2f M voxeles/s" % [
+	print("CROP %d shapes  %d voxels  %.2f s  = %.2f M voxels/s" % [
 		shapes.size(), voxels, elapsed, rate / 1e6
 	])
-	print("MAPA ENTERO %d voxeles x %d niveles = %.0f s de arranque" % [
+	print("FULL MAP %d voxels x %d levels = %.0f s startup" % [
 		FULL_MAP_VOXELS, LEVELS, FULL_MAP_VOXELS * LEVELS / rate
 	])
 	quit()

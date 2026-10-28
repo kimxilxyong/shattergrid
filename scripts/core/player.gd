@@ -1,5 +1,5 @@
 extends CharacterBody3D
-## Jugador en primera persona con escalones, floor snap y agarre físico de props voxel.
+## First-person player with step climbing, floor snap, and physical grabbing of voxel props.
 
 const SPEED := 5.5
 const SPRINT := 9.0
@@ -17,30 +17,29 @@ const JUMP_BUFFER_TIME := 0.12
 const SWIM_SPEED := 4.3
 const SWIM_ACCELERATION := 16.0
 const SWIM_VERTICAL_ACCELERATION := 13.0
-## Con el origen del CharacterBody en los pies, este valor deja la cámara unos 50 cm sobre la
-## lámina: el jugador nada en superficie en lugar de hundirse como una piedra.
+## With the CharacterBody origin at the feet, this value keeps the camera about 50 cm above the
+## water surface so the player swims at the surface instead of sinking like a stone.
 const SWIM_ORIGIN_DEPTH := 1.15
 const SWIM_ENTER_DEPTH := 0.55
 const SWIM_EXIT_DEPTH := 0.15
 
-## El cuerpo sube el peldano de golpe, como debe: si la camara le sigue en el mismo frame, un
-## desnivel de un voxel se ve como un tiron. Se guarda ese salto como deuda de altura de la vista y
-## se paga en ~0,15 s, asi que la fisica sigue siendo escalonada y la vista sube en rampa. Es lo que
-## hace Source con `m_flStepSmoothingOffset`, y no cuesta nada: la geometria de colision no cambia.
+## The body snaps up the step, as it should: if the camera follows in the same frame, a one-voxel
+## rise looks like a jolt. Store that jump as a view-height offset and ease it out over about
+## 0.15 s, so physics remains stepped while the view rises smoothly. Source does this with
+## `m_flStepSmoothingOffset`; it is free because collision geometry does not change.
 ##
-## Limitación conocida: en terreno muy irregular se notan pequeños saltos. La deuda se cobra con
-## una exponencial, así
-## que varios peldanos seguidos la acumulan mas rapido de lo que se paga y la vista queda colgada
-## detras del cuerpo; cuando el terreno se calma, la recuperacion de golpe se ve como un saltito. La
-## solucion buena es pagar a velocidad constante y limitada (m/s) en vez de exponencial, como el
-## `SmoothStepView` de Source, y además no acumular deuda durante la caída.
+## Known limitation: small jumps are noticeable on very uneven ground. The offset decays
+## exponentially, so several consecutive steps accumulate faster than it decays and the view lags
+## behind the body; when the terrain levels out, the sudden catch-up looks like a little hop. The
+## better solution is a constant, speed-limited decay (m/s), as in Source's `SmoothStepView`, and to
+## avoid accumulating offset while falling.
 const VIEW_STEP_SMOOTH := 14.0
 const VIEW_STEP_MAX := 0.55
 
-## `ConstrainPosition` de Teardown atrae dos puntos con velocidad e impulso máximos. Aquí se modela
-## con un resorte PD aplicado en el punto exacto del compound: Jolt conserva giro, bisagras y
-## colisiones. La fuerza del jugador es absoluta, no proporcional a masa; por eso una caja ligera
-## se levanta, una puerta pesa y una pieza enorme apenas se arrastra.
+## Teardown's `ConstrainPosition` attracts two points with maximum speed and impulse. Here it is
+## modelled as a PD spring applied at the exact point on the compound: Jolt retains rotation,
+## hinges, and collisions. Player force is absolute, not proportional to mass, so a light box lifts,
+## a door feels heavy, and a huge piece barely moves.
 const GRAB_RANGE := 3.25
 const GRAB_STIFFNESS := 760.0
 const GRAB_DAMPING_RATIO := 0.86
@@ -52,17 +51,17 @@ const GRAB_COMFORTABLE_MASS := 80.0
 const GRAB_MIN_MOVE_SCALE := 0.42
 const INTERACTION_REFRESH := 0.1
 
-## Alcance del disparo directo. Más allá, la bala se pierde.
+## Range of a direct shot. Beyond this distance, the bullet is lost.
 const RANGE := 200.0
 
-## Herramientas al estilo `MakeHole` de Teardown: `radius` es el boquete en material blando (madera,
-## yeso, vidrio) y `energy` la penetración, que se divide entre la dureza del material para sacar el
-## radio real. Así el cañón agujerea el revoco pero apenas raspa el hormigón, y la bomba abre un
-## cráter escalonado en vez de evaporar una esfera perfecta de todo lo que toca.
+## Teardown-style `MakeHole` tools: `radius` is the hole size in soft material (wood, plaster,
+## glass), and `energy` is penetration, divided by material hardness to get the actual radius. The
+## cannon can pierce render but barely scratch concrete, while the bomb creates a stepped crater
+## instead of erasing everything it touches as a perfect sphere.
 const CANON := {"radius": 1.1, "energy": 1.1}
 const BOMBA := {"radius": 2.3, "energy": 1.5}
 
-## Velocidad con la que sale la bomba de la mano.
+## Speed at which the bomb leaves the player's hand.
 const THROW_SPEED := 18.0
 
 @onready var camera: Camera3D = $Camera3D
@@ -90,9 +89,9 @@ var _water: VoxelWaterSystem
 var _was_swimming := false
 var _driving_vehicle: VoxelVehicle3D
 var _saved_collision_layer := 1
-## Frames de física que faltan para devolverle la colisión a la cápsula tras bajarse del vehículo.
-## Hace falta que Jolt dé un step entero con la pose de salida ya aplicada: reactivar antes -aunque
-## sea al principio del `_physics_process` siguiente- sigue dejando el barrido desde el asiento.
+## Physics frames remaining before restoring capsule collision after exiting a vehicle. Jolt needs
+## one full step with the exit pose applied: restoring earlier—even at the start of the next
+## `_physics_process`—still sweeps from the seat.
 var _collision_restore_delay := 0
 var _saved_collision_mask := 1
 var _saved_camera_position := Vector3.ZERO
@@ -105,8 +104,8 @@ var _vehicle_camera := VehicleCamera.new()
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	_camera_rest_position = camera.position
-	# La cámara consume manualmente la transformada interpolada del vehículo en `_process`; no debe
-	# recibir además otra interpolación local, que añadiría un tick de retraso y realimentación.
+	# The camera manually consumes the vehicle's interpolated transform in `_process`; it must not
+	# also receive local interpolation, which would add a tick of latency and feedback.
 	camera.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	# Conservative static collision LOD can turn 10 cm voxel stairs into 20–40 cm risers. Godot's
 	# snap handles descents; `_try_step_up` handles the matching ascent without a ramp mesh.
@@ -116,9 +115,9 @@ func _ready() -> void:
 	floor_constant_speed = true
 	floor_block_on_wall = true
 	max_slides = 8
-	# Jolt: el margen tiene que ser diminuto o se traga la deteccion. Con 0,035 la sonda de pared de
-	# `_try_step_up` medía menos que el propio margen — la velocidad ya venia anulada por el
-	# deslizamiento del frame anterior — y devolvia "camino libre" delante de un peldano de 25 cm.
+	# Jolt: the margin must be tiny or it swallows the collision detection. At 0.035, the wall probe
+	# in `_try_step_up` was shorter than the margin itself—the previous frame's slide had already
+	# cancelled velocity—and returned "clear path" in front of a 25 cm step.
 	safe_margin = 0.001
 	_grab_hold_key = "player_grab:%d" % get_instance_id()
 	_ensure_grab_line()
@@ -167,8 +166,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("interact"):
 		_toggle_vehicle()
 	elif _driving_vehicle != null:
-		# WASD/Espacio se leen continuamente en VoxelVehicle3D. Dentro del coche no se dispara,
-		# agarra ni lanza una bomba accidentalmente al operar esos mismos controles.
+		# VoxelVehicle3D continuously reads WASD/Space. While in the car, those controls must not
+		# accidentally fire, grab, or throw a bomb.
 		return
 	elif event.is_action_pressed("fire"):
 		_fire()
@@ -247,16 +246,16 @@ func _physics_process(delta: float) -> void:
 	var stepped := not swimming and not jumped and was_on_floor and _try_step_up(horizontal_motion)
 	if not stepped:
 		move_and_slide()
-	# La deuda se paga a paso de fisica, no de render: asi el suavizado dura lo mismo a 30 que a 144
-	# fps y no depende de cuantos frames se dibujen entremedias.
+	# Apply the offset at the physics rate, not the render rate, so smoothing lasts the same at 30
+	# and 144 fps regardless of how many frames are drawn in between.
 	_view_step_offset *= exp(-VIEW_STEP_SMOOTH * delta)
-	# Solo se suaviza el desnivel andando: saltar y caer tienen que sentirse como saltar y caer.
+	# Smooth only the step height while walking: jumps and falls should still feel like jumps and falls.
 	if was_on_floor and is_on_floor() and not jumped and not swimming:
 		_view_step_offset = clampf(
 			_view_step_offset - (global_position.y - previous_y), -VIEW_STEP_MAX, VIEW_STEP_MAX
 		)
-	# Se aplica ya aqui: si se esperase a `_process`, el frame en el que el cuerpo sube se dibujaria
-	# con la camara todavia sin compensar, que es justo el tiron que se quita.
+	# Apply it now: if deferred to `_process`, the frame where the body rises would render with the
+	# camera still uncompensated, causing the very jolt this code removes.
 	camera.position.y = _camera_rest_position.y + _view_step_offset
 	_apply_grab_force(delta)
 	_interaction_elapsed += delta
@@ -298,10 +297,10 @@ func _try_step_up(horizontal_motion: Vector3) -> bool:
 	if wall_collision.get_collision_count() == 0:
 		return false
 
-	# Subir y avanzar no son «o todo o nada»: si algo estorba se toma lo que se haya recorrido y se
-	# sigue. Abortar era justo lo que impedia subir escaleras de mas de 20 cm — elevado 46 cm, la
-	# sonda hacia delante choca contra el peldano siguiente al siguiente en cuanto el contrahuella
-	# pasa de 23 cm, y ahi se rendia aunque el peldano de al lado fuera perfectamente pisable.
+	# Rising and moving forward are not all-or-nothing: if something blocks the way, keep whatever
+	# distance was covered and continue. Aborting was exactly what prevented climbing steps over
+	# 20 cm—the forward probe at 46 cm elevation hits the step after the next as soon as the riser
+	# exceeds 23 cm, then gives up even though the next step is perfectly walkable.
 	var up_motion := Vector3.UP * MAX_STEP_HEIGHT
 	var up_collision := KinematicCollision3D.new()
 	if test_move(global_transform, up_motion, up_collision, safe_margin, false, 2):
@@ -311,9 +310,9 @@ func _try_step_up(horizontal_motion: Vector3) -> bool:
 	# The rounded foot of a capsule first touches a stair before its centre crosses the riser. Probe
 	# one capsule-radius into the tread; otherwise the downward cast hits that rounded corner again
 	# and reports a slope instead of the flat step top.
-	# La holgura solo pertenece a la SONDA. Aplicarla después como desplazamiento real añadía 30 cm
-	# por peldaño al movimiento pedido y era la falsa aceleración que se sentía en escaleras y suelo
-	# voxel irregular.
+	# The clearance belongs only to the PROBE. Applying it afterward as actual displacement added
+	# 30 cm per step to the requested movement, causing the false acceleration on stairs and uneven
+	# voxel ground.
 	var probe_motion := horizontal_motion \
 		+ horizontal_motion.normalized() * STEP_FORWARD_CLEARANCE
 	var raised := global_transform
@@ -321,8 +320,8 @@ func _try_step_up(horizontal_motion: Vector3) -> bool:
 	var forward_collision := KinematicCollision3D.new()
 	if test_move(raised, probe_motion, forward_collision, safe_margin, false, 2):
 		probe_motion = forward_collision.get_travel()
-	# Si elevado tampoco se avanza lo que pedia el movimiento de este frame, es una pared, no un
-	# peldano: este es el unico guardia que impide trepar por un muro.
+	# If the raised probe cannot move as far as requested this frame, it is a wall, not a step; this
+	# is the only guard that prevents climbing walls.
 	if probe_motion.length() < horizontal_motion.length():
 		return false
 	var advanced := raised
@@ -331,20 +330,19 @@ func _try_step_up(horizontal_motion: Vector3) -> bool:
 	var down_motion := Vector3.DOWN * (up_motion.y + FLOOR_SNAP)
 	if not test_move(advanced, down_motion, down_collision, safe_margin, false, 4):
 		return false
-	# Aqui NO se juzga por la normal. Al posarse sobre el canto de un peldano — que es lo normal
-	# cuando la sonda hacia delante se queda corta — Jolt devuelve la normal del canto, unos 53
-	# grados, y un aterrizaje perfectamente pisable se rechazaba como pared. Eso hacia
-	# intransitables las escaleras de 15 y 20 cm, justo el peldano de 1 y 2 voxeles del mapa.
-	# Lo que decide es la altura: `rise` tiene que caer dentro del escalon permitido, y quien impide
-	# trepar un muro es la sonda hacia delante de mas arriba, no esta.
+	# Do NOT judge by the normal here. When landing on a stair edge—which is normal when the forward
+	# probe falls short—Jolt returns the edge's normal, about 53 degrees, and a perfectly walkable
+	# landing was rejected as a wall. That made 15 cm and 20 cm stairs, exactly one- and two-voxel
+	# steps on the map, impassable. Height is decisive: `rise` must be within the allowed step range.
+	# The higher forward probe above, not this one, prevents climbing a wall.
 	if down_collision.get_collision_count() == 0:
 		return false
 	var down_travel := down_collision.get_travel()
 	var rise := up_motion.y + down_travel.y
 	if rise < MIN_STEP_HEIGHT or rise > MAX_STEP_HEIGHT + 0.01:
 		return false
-	# El barrido extra encuentra una superficie horizontal estable, pero el frame conserva exactamente
-	# la distancia horizontal integrada desde `velocity`.
+	# The extra sweep finds a stable horizontal surface, while the frame preserves exactly the
+	# horizontal distance integrated from `velocity`.
 	global_position += up_motion + horizontal_motion + down_travel
 	velocity.y = 0.0
 	return true
@@ -359,8 +357,8 @@ func _begin_grab() -> void:
 	_grabbed_voxel_body = pick.voxel_body
 	_grabbed_shape = pick.shape
 	_grabbed_door = pick.get("door") as VoxelDoor3D
-	# Un retirado vuelve a RigidBody antes de conservar referencias; el StaticBody anterior se
-	# elimina de forma diferida y no debe recibir fuerzas.
+	# A retired body returns to RigidBody before references are kept; the previous StaticBody is
+	# removed later and must not receive forces.
 	_grabbed_voxel_body.wake_for_interaction()
 	_grabbed_body = _grabbed_voxel_body.get_physics_body() as RigidBody3D
 	if _grabbed_body == null:
@@ -469,8 +467,9 @@ func _pick_grabbable() -> Dictionary:
 	if collider == null:
 		return {}
 	var voxel_body := _voxel_body_from_node(collider)
-	# El XML y la fragmentación son los únicos que autorizan dinámica. Hacer clic jamás promueve un
-	# muro STATIC; RETIRED_STATIC sí es un dinámico dormido por presupuesto y puede reactivarse.
+	# XML and fragmentation are the only sources that authorize dynamic state. Clicking never
+	# promotes a STATIC wall; RETIRED_STATIC is a dynamic body sleeping due to the budget and can be
+	# reactivated.
 	if voxel_body == null or voxel_body.state == VoxelBody3D.State.STATIC:
 		return {}
 	var shape := _shape_from_hit(voxel_body, collider, hit)
@@ -561,28 +560,28 @@ func _update_interaction_hint() -> void:
 	if interaction_label == null:
 		return
 	if _driving_vehicle != null and is_instance_valid(_driving_vehicle):
-		interaction_label.text = "E · salir  |  WASD conducir  |  Rueda zoom/interior  |  Espacio freno  |  %.0f km/h" \
+		interaction_label.text = "E · exit  |  WASD drive  |  Wheel zoom/interior  |  Space brake  |  %.0f km/h" \
 			% _driving_vehicle.speed_kmh()
 		return
 	if _grabbed_voxel_body != null and is_instance_valid(_grabbed_voxel_body):
 		var mass := _grabbed_body.mass if _grabbed_body != null else 0.0
 		if _grabbed_door != null and is_instance_valid(_grabbed_door) \
 				and _grabbed_door.is_latched():
-			interaction_label.text = "Puerta cerrada · destruye la chapa"
+			interaction_label.text = "Door is latched · destroy the panel"
 		elif mass > GRAB_MAX_FORCE / maxf(_gravity, 0.001):
-			interaction_label.text = "Sujetando %.0f kg · demasiado pesado para levantar" % mass
+			interaction_label.text = "Holding %.0f kg · too heavy to lift" % mass
 		else:
-			interaction_label.text = "Sujetando %.0f kg · suelta clic derecho" % mass
+			interaction_label.text = "Holding %.0f kg · release right click" % mass
 		return
 	if _grabbed_door != null and is_instance_valid(_grabbed_door):
 		interaction_label.text = (
-			"Puerta cerrada · destruye la chapa" if _grabbed_door.is_latched()
-			else "Sujetando puerta · suelta clic derecho"
+			"Door is latched · destroy the panel" if _grabbed_door.is_latched()
+			else "Holding door · release right click"
 		)
 		return
 	var nearby_vehicle := _nearest_vehicle()
 	if nearby_vehicle != null:
-		interaction_label.text = "E · conducir %s" % nearby_vehicle.display_name
+		interaction_label.text = "E · drive %s" % nearby_vehicle.display_name
 		return
 	var pick := _pick_grabbable()
 	if pick.is_empty():
@@ -591,12 +590,12 @@ func _update_interaction_hint() -> void:
 	var door := pick.get("door") as VoxelDoor3D
 	if door != null and is_instance_valid(door):
 		interaction_label.text = (
-			"Puerta cerrada · destruye la chapa" if door.is_latched()
-			else "Clic derecho · agarrar puerta"
+			"Door is latched · destroy the panel" if door.is_latched()
+			else "Right click · grab door"
 		)
 	else:
 		var rigid := (pick.voxel_body as VoxelBody3D).get_physics_body() as RigidBody3D
-		interaction_label.text = "Clic derecho · agarrar%s" % (
+		interaction_label.text = "Right click · grab%s" % (
 			" (%.0f kg)" % rigid.mass if rigid != null else ""
 		)
 
@@ -623,22 +622,22 @@ func _toggle_vehicle() -> void:
 	collision_layer = 0
 	collision_mask = 0
 	velocity = Vector3.ZERO
-	# Yaw de mundo, no relativo al chasis: la vista tiene que quedarse donde el jugador la deja
-	# aunque el tanque gire debajo. Se arranca mirando hacia donde mira el vehiculo.
+	# Use world yaw, not chassis-relative yaw: keep the view where the player left it even if the
+	# tank turns underneath. Start by facing the vehicle's current direction.
 	_vehicle_camera.fit(vehicle, _saved_camera_fov)
 	_vehicle_camera.snap(camera, vehicle)
 	_update_interaction_hint()
 
 
-## Devuelve la colisión guardada al bajarse del vehículo. Tiene que correr en un `_physics_process`
-## posterior al teleport de salida, nunca en el mismo: ver el comentario de `_leave_vehicle`.
+## Restores collision after exiting a vehicle. Must run in a `_physics_process` after the exit
+## teleport, never in the same one; see the comment in `_leave_vehicle`.
 func _apply_pending_collision_restore() -> bool:
 	if _collision_restore_delay <= 0:
 		return true
 	_collision_restore_delay -= 1
 	if _collision_restore_delay > 0:
-		# La cápsula se queda quieta y apagada este frame para que el step de Jolt registre la pose
-		# de salida. Es 1/60 s sin gravedad: no se ve, y evita el empujón al vehículo.
+		# Keep the capsule still and disabled this frame so Jolt records the exit pose. This is
+		# 1/60 s without gravity: invisible to the player, and it prevents pushing the vehicle.
 		return false
 	collision_layer = _saved_collision_layer
 	collision_mask = _saved_collision_mask
@@ -650,13 +649,13 @@ func _leave_vehicle(place_player: bool) -> void:
 	_driving_vehicle = null
 	if vehicle != null and is_instance_valid(vehicle):
 		vehicle.clear_driver(self)
-	# La cápsula lleva todo el viaje pegada al asiento, dentro del casco. Devolverle la colisión en
-	# el mismo frame en que se la teletransporta fuera hacía que Jolt tratara ese salto como
-	# movimiento cinemático: el cuerpo barría el vehículo de dentro afuera y se lo llevaba por
-	# delante -medido: 220 m/s de pico, y más cuanto más lejos caía la salida-. De ahí que el tanque
-	# saliera volando y se clavara en el suelo. Se coloca con la colisión aún apagada y se reactiva
-	# en el siguiente `_physics_process`, cuando Jolt ya tiene registrada la pose buena.
-	# `_safe_vehicle_exit` traza con `collision_mask`, así que la máscara se restaura para medir.
+	# The capsule stays attached to the seat inside the hull for the whole ride. Restoring collision
+	# in the same frame as the teleport made Jolt treat that jump as kinematic motion: the body swept
+	# through the vehicle from inside to outside and pushed it along (measured peak: 220 m/s, higher
+	# for a more distant exit). This sent the tank flying into the ground. Place the player while
+	# collision is still disabled and restore it during the next `_physics_process`, after Jolt has
+	# recorded the correct pose.
+	# `_safe_vehicle_exit` casts with `collision_mask`, so restore the mask while finding a position.
 	collision_mask = _saved_collision_mask
 	if place_player and vehicle != null and is_instance_valid(vehicle):
 		var exit_position := _safe_vehicle_exit(vehicle)
@@ -725,15 +724,15 @@ func _safe_vehicle_exit(vehicle: VoxelVehicle3D) -> Vector3:
 				)
 				if _vehicle_exit_is_clear(swimming_exit, clearance_exclusions):
 					return swimming_exit
-	# El punto de entrada estaba libre al subirse, pero el vehículo lleva ya un rato conduciendo y
-	# puede estar aparcado justo encima. Devolverlo sin comprobar metía la cápsula dentro del
-	# compound, y Jolt resolvía esa penetración lanzando al jugador por el aire y clavando el
-	# vehículo contra el suelo — muy visible en el tanque, cuyo casco grande tumba antes los siete
-	# candidates y cae aquí más a menudo.
+	# The entry point was clear when the player got in, but after driving for a while the vehicle
+	# may be parked directly on top of it. Returning there without checking placed the capsule
+	# inside the compound; Jolt resolved the penetration by launching the player and slamming the
+	# vehicle into the ground. This was especially visible with the tank: its large hull blocks the
+	# first seven candidates, so this fallback is used more often.
 	if _vehicle_exit_is_clear(_saved_vehicle_entry_position, clearance_exclusions):
 		return _saved_vehicle_entry_position
-	# Último recurso: sobre el techo del compound. Está libre por construcción -es el tope de los
-	# bounds más 1,8 m- así que el jugador cae encima del vehículo en vez de nacer dentro de él.
+	# Last resort: above the compound roof. It is clear by construction—the bounds' top plus 1.8 m—
+	# so the player falls onto the vehicle instead of spawning inside it.
 	var candidates := vehicle.get_exit_candidates()
 	return candidates[candidates.size() - 1]
 
@@ -771,8 +770,8 @@ func _nearest_vehicle() -> VoxelVehicle3D:
 	return best
 
 
-## RIDs que la cámara orbital no debe considerar obstáculo: el propio jugador y el vehículo que
-## conduce. Vive aquí porque el jugador es quien conoce su propio cuerpo.
+## RIDs that the orbit camera must not treat as obstacles: the player and the vehicle they are
+## driving. This lives here because the player knows its own body.
 func _camera_exclusions() -> Array[RID]:
 	var exclusions: Array[RID] = [get_rid()]
 	if _driving_vehicle != null and is_instance_valid(_driving_vehicle):
@@ -780,7 +779,7 @@ func _camera_exclusions() -> Array[RID]:
 	return exclusions
 
 
-## Cañón: disparo directo. Abre el cráter donde impacta.
+## Cannon: direct shot. Opens a crater where it hits.
 func _fire() -> void:
 	var from := camera.global_position
 	var query := PhysicsRayQueryParameters3D.create(from, from - camera.global_basis.z * RANGE)
@@ -788,13 +787,13 @@ func _fire() -> void:
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
 	if hit.is_empty():
 		return
-	# Un pelo hacia dentro de la superficie: el punto de impacto cae en la cara del voxel, y sin
-	# esto el centro del cráter queda medio voxel por fuera y muerde menos de lo que debería.
+	# Nudge slightly into the surface: impact lands on the voxel face, and without this the crater
+	# center would sit half a voxel outside and remove less material than intended.
 	var center: Vector3 = hit["position"] - (hit["normal"] as Vector3) * Vox.VOXEL_SIZE * 0.5
 	Explosion.at(self, center, CANON["radius"], CANON["energy"])
 
 
-## Bomba: sale volando desde la cámara y revienta al tocar.
+## Bomb: launches from the camera and explodes on contact.
 func _throw() -> void:
 	var bomb := Bomb.new()
 	bomb.radius = BOMBA["radius"]

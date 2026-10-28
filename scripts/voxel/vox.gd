@@ -11,9 +11,9 @@ const VOXEL_SIZE := 0.10
 const MASS_PER_M3 := 1800.0
 
 const COLOR_HEX := [0xB5552D, 0x9A9AA0, 0x8B5A2B, 0xB02E2E, 0x9AD0EC, 0x5E6770, 0x232323]
-## Dureza en la escala de `damage_sphere_material`: 1.0 es el material blando de referencia (madera,
-## yeso) y cada punto por encima recorta el radio del boquete. Teardown agrupa así sus materiales en
-## blandos, medios, duros e indestructibles.
+## Hardness on the `damage_sphere_material` scale: 1.0 is the reference soft material (wood, plaster),
+## and each point above that reduces the crater radius. Teardown groups its materials as soft,
+## medium, hard, and indestructible.
 const TOUGHNESS := [2.0, 2.6, 1.0, 1.2, 0.5, 4.0, 1.0]
 const DENSITY := [1.0, 1.4, 0.4, 1.0, 1.3, 4.0, 0.3]
 

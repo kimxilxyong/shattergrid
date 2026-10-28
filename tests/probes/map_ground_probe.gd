@@ -1,9 +1,9 @@
 extends SceneTree
-## Busca láminas: Shapes grandes en planta y de muy pocos voxeles de grosor.
+## Find slabs: Shapes with a large footprint and very few voxels in thickness.
 ##
-## El síntoma es una superficie oscura que se ve por una cara, no por la otra, y que colisiona. Eso
-## es geometría plana, no una sombra. Aquí salen con su posición, su grosor real y el color que les
-## toca en la paleta, para poder cruzarlas con lo que se ve en pantalla.
+## The symptom is a dark surface visible from one side but not the other, which still collides. That
+## is flat geometry, not a shadow. Report its position, actual thickness, and palette color so it
+## can be compared with what appears on screen.
 
 var MAP := VoxelProjectPaths.teardown_map_path()
 
@@ -41,7 +41,7 @@ func _init() -> void:
 	laminas.sort_custom(func(a, b): return a.area > b.area)
 	print("LAMINAS=%d" % laminas.size())
 	for entry in laminas.slice(0, 20):
-		print("  %-16s area=%7.0f  grosor=%d vox  tam=%5.1f x %5.1f x %5.1f  centro=%s  color=%s  colisiona=%s"
+		print("  %-16s area=%7.0f  thickness=%d vox  size=%5.1f x %5.1f x %5.1f  center=%s  color=%s  collidable=%s"
 			% [entry.body, entry.area, entry.grosor, entry.tamano.x, entry.tamano.y,
 				entry.tamano.z, str(entry.centro), entry.color, entry.colisiona])
 	quit(0)
@@ -50,7 +50,7 @@ func _init() -> void:
 func _dominant_color(shape: VoxelShape3D) -> String:
 	var counts := {}
 	var size := shape.data.get_dimensions()
-	# Muestreo: recorrer entera una lámina de decenas de metros no aporta nada al color dominante.
+	# Sampling: scanning an entire slab tens of meters across adds nothing to the dominant color.
 	for z in range(0, size.z, maxi(1, size.z / 16)):
 		for y in range(0, size.y, maxi(1, size.y / 16)):
 			for x in range(0, size.x, maxi(1, size.x / 16)):

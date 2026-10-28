@@ -1,18 +1,18 @@
 extends SceneTree
-## Regresión del fallo de escombros con colisión pero sin imagen: el BVH debe aceptar más hojas que
-## la reserva inicial y reconstruir también el subconjunto transparente cuando cambia su tamaño.
+## Regression test for debris that had collision but no image: the BVH must support more leaves than
+## its initial capacity and rebuild the transparent subset when its size changes.
 
 
 
 var failures := 0
 
 
-## `assert` desaparece en las compilaciones de release: un test que solo afirma con asserts pasaria
-## siempre. El fallo se cuenta y sale por el codigo de salida.
+## `assert` is removed in release builds: a test that relies only on assertions would always pass.
+## Failures are counted and reflected in the exit code.
 func _check(condition: bool, message := "") -> void:
 	if not condition:
 		failures += 1
-		printerr("  FALLO ", message)
+		printerr("  FAIL ", message)
 
 func _initialize() -> void:
 	var initial: Array[Dictionary] = []
@@ -24,34 +24,34 @@ func _initialize() -> void:
 	_check(DedicatedVoxelDDAEffect._topology_must_rebuild(
 		false, initial.size(), grown.size(), false
 	),
-		"cambiar el número de hojas debe reconstruir la topología aunque la paleta no cambie")
+		"changing the leaf count must rebuild topology even if the palette is unchanged")
 	var built := DedicatedVoxelBVH.build_entries(grown)
 	_check(not built.is_empty() and int(built.node_count) == grown.size() * 2 - 1,
-		"el BVH ampliado debe contener todas sus hojas")
+		"the expanded BVH must contain all its leaves")
 	var animation := VoxelSurfaceAnimation.create(
 		122, AABB(Vector3(0, 0, 0), Vector3(78, 13, 38)), 4.0, 4.0
 	)
-	# El bucle envuelve en el perímetro del octógono del perfil, no en el paso del eslabón ni en el
-	# rectángulo: el shader calcula ese mismo valor y cualquier desajuste salta de fase cada vuelta.
+	# The loop wraps around the profile's octagonal perimeter, not the link spacing or the rectangle:
+	# the shader calculates the same value, and any mismatch shifts the phase on every loop.
 	var perimeter := animation.perimeter_cells()
 	_check(is_equal_approx(perimeter, 168.627417),
-		"el perímetro del perfil achaflanado coincide con el que deriva el shader")
+		"the chamfered-profile perimeter matches the one derived by the shader")
 	animation.advance(perimeter + 1.25, 2.5)
 	_check(is_equal_approx(animation.offsets.x, 1.25),
-		"el offset da la vuelta al perímetro del perfil")
+		"the offset wraps around the profile perimeter")
 	var animated_entry := VoxelRenderSystem._placeholder_entry(0)
 	animated_entry.surface_animation = animation.gpu_parameters()
 	var packed := DedicatedVoxelBVH.pack_entry(animated_entry)
-	_check(packed.size() == 240, "el ABI de Shape reserva 240 bytes con animación superficial")
+	_check(packed.size() == 240, "the Shape ABI reserves 240 bytes with surface animation")
 	var floats := packed.to_float32_array()
 	_check(is_equal_approx(floats[48], 1.25) and is_equal_approx(floats[49], 2.5)
 		and roundi(floats[50]) == 122 and is_equal_approx(floats[51], 1.0),
-		"offsets, material y activación conservan su posición en el ABI")
+		"offsets, material, and activation retain their ABI positions")
 	_check(Vector3(floats[52], floats[53], floats[54]) == Vector3.ZERO
 		and is_equal_approx(floats[55], 4.0)
 		and Vector3(floats[56], floats[57], floats[58]) == Vector3(78, 13, 38)
 		and is_equal_approx(floats[59], 4.0),
-		"límites, paso del eslabón y chaflán del perfil llegan completos al shader")
+		"bounds, link spacing, and profile chamfer reach the shader intact")
 	_check(VoxelRenderSystem._grow_macro_atlas(Vector3i(32, 32, 256)) \
 		== Vector3i(32, 32, 512))
 	print("VOXEL_RENDERER_TOPOLOGY_GROWTH_SELFTEST_OK")

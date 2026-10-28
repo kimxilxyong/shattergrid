@@ -1,6 +1,6 @@
 extends "res://tests/selftest/selftest.gd"
 func _run() -> void:
-	print("movimiento: recuperación, snap y escaleras")
+	print("movement: recovery, snap, and stairs")
 	var level := Node3D.new()
 	root.add_child(level)
 	make_box_body(level, Vector3(12.0, 0.2, 12.0), Vector3(0.0, -0.1, 0.0))
@@ -51,18 +51,18 @@ func _run() -> void:
 		max_horizontal_step = maxf(max_horizontal_step, horizontal.distance_to(previous_horizontal))
 		previous_horizontal = horizontal
 	Input.action_release("move_forward")
-	print("  posición final ", player.position)
-	_check(player.position.z < -0.65, "el controlador supera una escalera voxel de cuatro peldaños")
-	_check(player.position.y > 0.68, "termina sobre el rellano y no empotrado en el suelo")
-	# `safe_margin` es diminuto a proposito: ver el comentario de `_ready` en `player.gd`.
+	print("  final position ", player.position)
+	_check(player.position.z < -0.65, "the controller climbs a four-step voxel staircase")
+	_check(player.position.y > 0.68, "it ends on the landing instead of embedded in the floor")
+	# `safe_margin` is intentionally tiny; see the comment in `_ready` in `player.gd`.
 	_check(player.floor_snap_length >= 0.3 and player.safe_margin <= 0.01,
-		"floor snap activo y margen diminuto para la sonda de escalon")
-	print("  avance horizontal máximo por frame %.3f m" % max_horizontal_step)
+		"floor snap is active and the step probe uses a tiny margin")
+	print("  maximum horizontal movement per frame %.3f m" % max_horizontal_step)
 	_check(max_horizontal_step <= 0.11,
-		"la sonda de peldaño no añade distancia ni aceleración al movimiento")
-	print("  salto por frame  cuerpo %.3f  vista %.3f" % [body_jump, view_jump])
-	_check(body_jump > 0.1, "el cuerpo sube el peldaño de golpe, como debe")
-	_check(view_jump < body_jump * 0.6, "la vista reparte ese peldaño en varios frames")
+		"the step probe adds no distance or acceleration to movement")
+	print("  per-frame step  body %.3f  view %.3f" % [body_jump, view_jump])
+	_check(body_jump > 0.1, "the body climbs the step immediately, as expected")
+	_check(view_jump < body_jump * 0.6, "the view spreads that step over several frames")
 
 	if failures == 0:
 		print("VOXEL_PLAYER_MOVEMENT_SELFTEST_OK")

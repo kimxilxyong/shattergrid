@@ -1,12 +1,12 @@
 class_name Bomb
 extends RigidBody3D
-## Carga que se lanza y revienta al primer contacto, o sola pasado el fusible.
+## A thrown charge that explodes on first contact or when its fuse expires.
 
 var radius := 2.3
 var energy := 12.0
 
-## Segundos antes de reventar si no toca nada. Sin él, una bomba lanzada al vacío se queda cayendo
-## para siempre y sigue costando broadphase.
+## Seconds before detonation if nothing is hit. Without it, a bomb thrown into empty space would
+## fall forever and keep costing broad-phase work.
 const FUSE := 4.0
 
 var _spent := false
@@ -41,9 +41,9 @@ func _ready() -> void:
 
 
 func _on_touch(_body: Node) -> void:
-	# `body_entered` llega dentro del paso de física, y ahí no se puede sacar un cuerpo del árbol:
-	# Jolt está recorriendo su propia lista. Se marca gastada ya —para que dos contactos del mismo
-	# paso no la detonen dos veces— y el resto se hace al salir.
+	# `body_entered` runs inside the physics step, when a body cannot be removed from the tree:
+	# Jolt is traversing its own list. Mark it spent now—so two contacts in the same step cannot
+	# detonate it twice—and defer the rest until the step ends.
 	if _spent:
 		return
 	_spent = true
@@ -56,8 +56,8 @@ func _detonate() -> void:
 	_spent = true
 	var center := global_position
 	var parent := get_parent()
-	# Se retira antes de repartir la onda: si no, el barrido de escombros se empuja a sí misma y el
-	# `queue_free` posterior deja un cuerpo tocado a medias.
+	# Remove it before applying the blast: otherwise the debris sweep pushes the bomb itself, and
+	# the later `queue_free` leaves a partially affected body.
 	get_parent().remove_child(self)
 	queue_free()
 	Explosion.at(parent, center, radius, energy)

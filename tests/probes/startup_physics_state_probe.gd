@@ -1,7 +1,7 @@
 extends SceneTree
-## Reproduce el arranque completo de Lee y audita dos invariantes que el HUD hace visibles:
-## las revisiones de colision deben ser coherentes y los props authored deben dormirse al terminar
-## la importacion. Se conserva como regresion porque ambos fallos cuestan FPS desde el primer frame.
+## Reproduce Lee's full startup and audit two invariants surfaced by the HUD:
+## collision revisions must be consistent, and authored props must sleep after import completes.
+## Keep this as a regression test because both failures cost FPS from the first frame.
 
 var MAP := VoxelProjectPaths.teardown_map_path()
 

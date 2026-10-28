@@ -1,8 +1,8 @@
 extends SceneTree
-## Cuanto cuesta la busqueda de cimiento en el mapa real, y cuanto suelta.
+## Cost of foundation searches on the real map and how much they detach.
 ##
-## El riesgo es `touches`: recorre los voxeles del solape entre dos Shapes, y en Lee hay Shapes de
-## 25 M de voxeles. Si el coste por disparo se dispara, se ve aqui y no en la partida.
+## The risk is `touches`: it scans overlapping voxels between two Shapes, and Lee has Shapes with
+## 25 M voxels. If per-shot costs spike, this probe reveals it without affecting gameplay.
 var MAP := VoxelProjectPaths.teardown_map_path()
 
 
@@ -22,10 +22,10 @@ func _run() -> void:
 		await physics_frame
 	var spawn: Vector3 = report.get("spawnpoint", Vector3.ZERO)
 	print("spawn ", spawn)
-	# Desglose con las metricas que el mundo ya publica, para no adivinar donde se va el tiempo.
+	# Break down the metrics already published by the world instead of guessing where time is spent.
 	print("%-22s %7s %7s %7s %7s %7s %7s %7s %7s %7s %7s %7s %5s %6s %6s" % [
-		"disparo", "total", "busq", "consul", "conect", "raices", "fill", "extern",
-		"contact", "fragm", "detach", "cuerpo", "calls", "macro", "vox"])
+		"shot", "total", "search", "query", "connect", "roots", "fill", "external",
+		"contact", "fragments", "detach", "body", "calls", "macros", "voxels"])
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 5
 	var worst := 0.0
@@ -51,5 +51,5 @@ func _run() -> void:
 			world.connectivity_macros_visited, world.connectivity_voxels_materialized])
 		for _frame in 3:
 			await physics_frame
-	print("\npeor disparo %.2f ms  (presupuesto a 60 fps: 16,7 ms)" % worst)
+	print("\nworst shot %.2f ms  (budget at 60 fps: 16.7 ms)" % worst)
 	quit()

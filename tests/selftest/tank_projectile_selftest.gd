@@ -1,6 +1,6 @@
 extends "res://tests/selftest/selftest.gd"
-## Proyectil del cañón: cae como debe, no atraviesa nada por ir rápido, y detona DETRÁS del
-## blindaje en vez de en su cara.
+## Tank cannon projectile: drops as expected, does not pass through objects at high speed, and
+## detonates BEHIND the armor instead of on its surface.
 
 class Gunner:
 	extends Node3D
@@ -11,21 +11,21 @@ class Gunner:
 
 
 func _run() -> void:
-	print("proyectil del cañón")
+	print("cannon projectile")
 	await _test_ballistics()
 	await _test_penetration()
 	await _test_tank_fires()
 	quit(1 if failures > 0 else 0)
 
 
-## Caída libre: sin nada que golpear, el proyectil describe una parábola. Se compara contra
-## ½·g·t², que es la referencia analítica; el rozamiento solo puede restar, nunca sumar.
+## Free fall: with nothing to hit, the projectile follows a parabola. Compare it with ½·g·t²,
+## the analytical reference; drag can only reduce the distance, never increase it.
 func _test_ballistics() -> void:
 	var world := make_world()
 	var start := Vector3(0.0, 50.0, 0.0)
 	var muzzle := Transform3D(Basis.looking_at(Vector3.RIGHT, Vector3.UP), start)
 	var shell := Projectile.spawn(world, muzzle)
-	_check(shell != null, "la ficha 'ap' existe y se instancia")
+	_check(shell != null, "the 'ap' ammunition entry exists and can be instantiated")
 	if shell == null:
 		world.queue_free()
 		return
@@ -35,32 +35,32 @@ func _test_ballistics() -> void:
 	for _frame in 30:
 		await physics_frame
 		elapsed += step
-	_check(is_instance_valid(shell), "no detona en el aire")
+	_check(is_instance_valid(shell), "it does not detonate in midair")
 	if not is_instance_valid(shell):
 		world.queue_free()
 		return
 	var drop := start.y - shell.global_position.y
 	var free_fall := 0.5 * Projectile.GRAVITY * elapsed * elapsed
 	var travel := shell.global_position.x - start.x
-	print("  t=%.3f s  avance=%.1f m  caída=%.3f m (libre %.3f m)" % [
+	print("  t=%.3f s  travel=%.1f m  drop=%.3f m (free %.3f m)" % [
 		elapsed, travel, drop, free_fall
 	])
-	_check(drop > free_fall * 0.85 and drop <= free_fall * 1.01, "la caída es la de una parábola")
-	# Con el rozamiento cuadrático la velocidad va como v0/(1+k·v0·t): siempre por debajo de la
-	# balística en vacío, nunca por encima ni frenada hasta pararse.
+	_check(drop > free_fall * 0.85 and drop <= free_fall * 1.01, "the drop follows a parabola")
+	# With quadratic drag, velocity follows v0/(1+k·v0·t): always below the vacuum trajectory,
+	# never above it or slowed to a stop.
 	var vacuum: float = float(Projectile.AMMO.ap.speed) * elapsed
-	_check(travel < vacuum and travel > vacuum * 0.9, "el rozamiento frena, pero no lo detiene")
+	_check(travel < vacuum and travel > vacuum * 0.9, "drag slows it without stopping it")
 	world.queue_free()
 	await process_frame
 
 
-## La bala es el modelo `.vox` de verdad, no una caja ni una tabla en el código: se comprueba que
-## el asset carga, que sale entero en MultiMesh y que está orientado como un dardo -punta de un
-## voxel a proa, aletas anchas a popa-. En headless el driver de vídeo es el mudo y no devuelve los
-## transforms del MultiMesh, así que la silueta se mide en el modelo y el dibujado en las instancias.
+## The bullet uses the actual `.vox` model, not a box or a table in code: verify that the asset
+## loads, appears fully in the MultiMesh, and is oriented like a dart—with a one-voxel tip at the
+## nose and wide fins at the tail. In headless mode, the silent video driver does not return the
+## MultiMesh transforms, so measure the silhouette in the model and the draw count in the instances.
 func _check_is_voxel_dart(shell: Projectile) -> void:
 	var asset := Projectile.model()
-	_check(not asset.is_empty(), "el modelo .vox del proyectil carga")
+	_check(not asset.is_empty(), "the projectile .vox model loads")
 	if asset.is_empty():
 		return
 	var data: VoxelShapeData = asset.shapes[0].data
@@ -71,26 +71,26 @@ func _check_is_voxel_dart(shell: Projectile) -> void:
 		if child is MultiMeshInstance3D:
 			drawn += (child as MultiMeshInstance3D).multimesh.instance_count
 	var unit := float(Projectile.AMMO.ap.caliber) / float(Projectile.MODEL_BODY_VOXELS)
-	print("  dardo: %s voxeles de %.3f m, %d ocupados, %d dibujados" % [
+	print("  dart: %s voxels at %.3f m, %d occupied, %d drawn" % [
 		dimensions, unit, occupied, drawn
 	])
-	_check(occupied > 100, "el dardo está hecho de voxeles, no de una caja suelta")
-	_check(drawn == occupied, "se dibuja el modelo entero, acero y trazador")
-	# El eje largo es el de la marcha: un dardo es mucho más largo que ancho.
-	_check(dimensions.z > dimensions.x * 3, "el modelo es un dardo, no un ladrillo")
-	_check(_slice_count(data, 0) == 1, "la punta afilada va a proa (-Z), que es hacia donde vuela")
+	_check(occupied > 100, "the dart is made of voxels, not a loose box")
+	_check(drawn == occupied, "the entire model is drawn, including steel and tracer")
+	# The long axis is the direction of travel: a dart is much longer than it is wide.
+	_check(dimensions.z > dimensions.x * 3, "the model is a dart, not a brick")
+	_check(_slice_count(data, 0) == 1, "the sharp tip points forward (-Z), in the direction of travel")
 	_check(
 		_slice_count(data, dimensions.z - 1) > 1,
-		"el culote es más ancho que la punta: ahí van aletas y trazador"
+		"the base is wider than the tip: it holds the fins and tracer"
 	)
-	# La barra mide el calibre de la ficha: cinco voxeles de 24 mm son los 120 mm reales.
+	# The barrel matches the ammunition caliber: five 24 mm voxels equal the real 120 mm caliber.
 	_check(
 		is_equal_approx(unit * Projectile.MODEL_BODY_VOXELS, float(Projectile.AMMO.ap.caliber)),
-		"el grueso de la barra es el calibre"
+		"the barrel thickness matches the caliber"
 	)
 
 
-## Voxeles ocupados en la rodaja z del modelo.
+## Occupied voxels in the model's z slice.
 func _slice_count(data: VoxelShapeData, z: int) -> int:
 	var dimensions := data.get_dimensions()
 	var count := 0
@@ -101,8 +101,8 @@ func _slice_count(data: VoxelShapeData, z: int) -> int:
 	return count
 
 
-## Perforación: un muro de 40 cm a 30 m. A 420 m/s el proyectil recorre 7 m por paso de física, así
-## que si el trazado no fuese por barrido lo atravesaría sin enterarse.
+## Penetration: a 40 cm wall at 30 m. At 420 m/s, the projectile travels 7 m per physics step, so
+## without swept tracing it would pass through without registering a hit.
 func _test_penetration() -> void:
 	var world := make_world()
 	var wall_x := 30.0
@@ -122,32 +122,32 @@ func _test_penetration() -> void:
 		await physics_frame
 		if not blasts.is_empty():
 			break
-	_check(not blasts.is_empty(), "el muro para el proyectil: no lo atraviesa sin detonar")
-	_check(not is_instance_valid(shell), "el proyectil se retira al detonar")
+	_check(not blasts.is_empty(), "the wall stops the projectile; it does not pass through without detonating")
+	_check(not is_instance_valid(shell), "the projectile is removed after detonation")
 	if blasts.is_empty():
 		world.queue_free()
 		return
 	var center: Vector3 = blasts[0].center
 	var depth := center.x - face
-	print("  cara del muro x=%.2f  carga en x=%.2f  (%.2f m dentro)" % [face, center.x, depth])
-	# Lo que separa un AP de una granada: la carga revienta pasada la chapa, no contra ella.
-	_check(depth > 0.5, "la carga detona detrás del blindaje, no en su cara")
-	_check(depth <= float(Projectile.AMMO.ap.penetration) + 0.01, "no penetra más de su ficha")
-	# La caída de la parábola no puede desviar el impacto del muro: a 30 m son centímetros.
-	_check(absf(center.z) < 0.5 and absf(center.y - 50.0) < 1.0, "impacta donde apunta")
+	print("  wall face x=%.2f  charge x=%.2f  (%.2f m inside)" % [face, center.x, depth])
+	# What distinguishes an AP round from a grenade: the charge detonates beyond the plate, not against it.
+	_check(depth > 0.5, "the charge detonates behind the armor, not on its surface")
+	_check(depth <= float(Projectile.AMMO.ap.penetration) + 0.01, "it does not exceed its spec penetration")
+	# The parabolic drop cannot significantly deflect the wall impact: at 30 m it is only centimeters.
+	_check(absf(center.z) < 0.5 and absf(center.y - 50.0) < 1.0, "it impacts where it is aimed")
 	world.queue_free()
 	await process_frame
 
 
-## Integración: el cañón del tanque suelta proyectil de verdad, y no se dispara a sí mismo pese a
-## que el bocacho nace dentro de la envolvente de la torreta.
+## Integration: the tank cannon fires a real projectile and does not shoot itself, even though
+## the muzzle starts inside the turret's envelope.
 func _test_tank_fires() -> void:
 	var world := make_world()
 	make_box_body(world, Vector3(80, 1, 80), Vector3(0, -0.5, 0))
 	var gunner := Gunner.new()
 	root.add_child(gunner)
 	var tank := VoxelTank3D.spawn(world, Vector3(0, 1.0, 0), gunner)
-	_check(tank != null, "el tanque se importa")
+	_check(tank != null, "the tank imports successfully")
 	if tank == null:
 		world.queue_free()
 		return
@@ -157,16 +157,16 @@ func _test_tank_fires() -> void:
 	world.explosion_started.connect(
 		func(_center: Vector3, _radius: float, _energy: float) -> void: blasts += 1
 	)
-	_check(tank.fire(), "el cañón dispara")
+	_check(tank.fire(), "the cannon fires")
 	await physics_frame
 	var shells := 0
 	for child in world.get_children():
 		if child is Projectile:
 			shells += 1
-	_check(shells == 1, "el disparo pone un proyectil en el mundo")
-	# Dos frames a 420 m/s son 14 m: si el rayo mordiese el propio carro, ya habría detonado.
+	_check(shells == 1, "firing adds one projectile to the world")
+	# Two frames at 420 m/s cover 14 m: if the ray hit the tank itself, it would already have detonated.
 	await physics_frame
-	_check(blasts == 0, "el proyectil no detona sobre el tanque que lo dispara")
+	_check(blasts == 0, "the projectile does not detonate on the tank that fired it")
 	world.queue_free()
 	gunner.queue_free()
 	await process_frame

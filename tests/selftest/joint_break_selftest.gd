@@ -1,7 +1,7 @@
 extends "res://tests/selftest/selftest.gd"
-## Un joint deja de sujetar cuando le vuelan los voxeles del anclaje. Sin esto, un `Joint3D` de Godot
-## es eterno: destruyes el tramo de tuberia entero y la restriccion sigue sosteniendo los pedazos en
-## el aire, que es justo lo que se veia en el mapa.
+## A joint stops holding when its anchor voxels are destroyed. Without this, a Godot `Joint3D` is
+## permanent: destroy an entire pipe section and the constraint keeps the pieces suspended in the
+## air, exactly as seen on the map.
 
 
 func _make_body(world: VoxelWorld3D, origin: Vector3, dimensions: Vector3i,
@@ -16,7 +16,7 @@ func _make_body(world: VoxelWorld3D, origin: Vector3, dimensions: Vector3i,
 	cells.fill(1)
 	shape.data.set_cells(dimensions, cells)
 	shape.palette = VoxelPalette.new()
-	# Dureza baja: el disparo tiene que llevarse el anclaje entero de una.
+	# Low hardness: the shot must destroy the entire anchor in one hit.
 	shape.palette.set_material(1, {"color": Color.GRAY, "hardness": 0.4, "density": 400.0})
 	shape.anchored = false
 	shape.transform = Transform3D(Basis.IDENTITY, origin)
@@ -30,10 +30,10 @@ func _height(body: VoxelBody3D) -> float:
 
 
 func _run() -> void:
-	print("rotura de joints")
+	print("joint break")
 	var world := make_world()
 
-	# Un soporte fijo y un tramo colgando de el por un joint, como una tuberia de Lee.
+	# A fixed support and a section hanging from it by a joint, like a pipe in Lee.
 	var mount := _make_body(world, Vector3(0, 4, 0), Vector3i(8, 8, 8), false)
 	var pipe := _make_body(world, Vector3(1.2, 4, 0), Vector3i(20, 6, 6), true)
 	var anchor := Vector3(0.35, 4, 0)
@@ -55,37 +55,37 @@ func _run() -> void:
 
 	for _frame in 30:
 		await physics_frame
-	_check(joints.live_count() == 1, "el joint entra vivo")
+	_check(joints.live_count() == 1, "the joint is registered as live")
 	_check(mount.physics_hold_count() == 1 and pipe.physics_hold_count() == 1,
-		"el joint protege ambos Bodies frente al retiro por presupuesto")
+		"the joint protects both Bodies from budget-based retirement")
 	var hanging := _height(pipe)
 
-	# Un disparo lejos no puede romperlo.
+	# A distant shot must not break it.
 	world.damage_sphere(Vector3(6.0, 4.0, 0.0), 0.6, 40.0)
 	for _frame in 5:
 		await physics_frame
-	_check(joints.live_count() == 1, "un impacto lejos del anclaje no rompe el joint")
+	_check(joints.live_count() == 1, "an impact away from the anchor does not break the joint")
 
-	# Y ahora al anclaje: se lleva los voxeles del soporte y el tramo tiene que soltarse.
+	# Now hit the anchor: remove the support voxels and the section must detach.
 	world.damage_sphere(anchor, 1.2, 40.0)
 	for _frame in 5:
 		await physics_frame
-	print("  joints vivos tras reventar el anclaje: %d" % joints.live_count())
-	_check(joints.live_count() == 0, "sin voxeles alrededor, el joint se rompe")
+	print("  live joints after breaking the anchor: %d" % joints.live_count())
+	_check(joints.live_count() == 0, "the joint breaks when no voxels remain around the anchor")
 	_check(mount.physics_hold_count() == 0 and pipe.physics_hold_count() == 0,
-		"la rotura libera las retenciones contadas")
+		"breaking it releases the counted retentions")
 	_check(not joints._by_body.has(mount.get_instance_id()) \
 		and not joints._by_body.has(pipe.get_instance_id()),
-		"el índice inverso no conserva registros rotos")
-	_check(pipe.is_awake(), "y el tramo suelto se entera, no se queda dormido flotando")
+		"the reverse index does not retain broken records")
+	_check(pipe.is_awake(), "the detached section wakes up instead of floating while asleep")
 
 	for _frame in 90:
 		await physics_frame
 	var fallen := hanging - _height(pipe)
-	print("  el tramo bajo %.2f m tras soltarse" % fallen)
-	_check(fallen > 0.5, "el tramo cae de verdad")
+	print("  section dropped %.2f m after detachment" % fallen)
+	_check(fallen > 0.5, "the section actually falls")
 
-	# Transferencia de ownership: el registro debe salir del índice anterior, no solo añadirse al nuevo.
+	# Ownership transfer: remove the record from the old index; do not just add it to the new one.
 	var source2 := _make_body(world, Vector3(3, 6, 0), Vector3i(4, 4, 4), true)
 	var heir := _make_body(world, Vector3(3, 6, 0), Vector3i(4, 4, 4), true)
 	var joint2 := PinJoint3D.new()
@@ -107,17 +107,17 @@ func _run() -> void:
 				source2_shape.data.set_cell(x, y, z, 0)
 	world.body_split.emit(source2, [heir] as Array[VoxelBody3D])
 	_check(transfer_record.owner_body == heir,
-		"el anclaje cambia al Body que conserva el material")
+		"the anchor switches to the Body that retains the material")
 	_check(not joints._by_body.has(source2.get_instance_id()) \
 		and joints._by_body.get(heir.get_instance_id(), []).has(transfer_record),
-		"el índice inverso elimina al dueño anterior durante la transferencia")
+		"the reverse index removes the previous owner during transfer")
 	_check(source2.physics_hold_count() == 0 and heir.physics_hold_count() == 1,
-		"la retención física se transfiere junto con el joint")
+		"the physics hold is transferred along with the joint")
 	world.unregister_body(heir)
 	_check(bool(transfer_record.broken) and heir.physics_hold_count() == 0 \
 		and mount.physics_hold_count() == 0 \
 		and not joints._by_body.has(heir.get_instance_id()),
-		"unregister_body rompe atómicamente la restricción sin heredero")
+		"unregister_body atomically breaks a constraint with no heir")
 
 	if failures == 0:
 		print("VOXEL_JOINT_BREAK_SELFTEST_OK")

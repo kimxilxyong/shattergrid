@@ -1,9 +1,9 @@
 extends SceneTree
-## Importa el mapa entero sin recorte y dice qué se pierde por el camino y si el atlas lo aguanta.
+## Import the entire map without cropping and report what is lost along the way and whether the atlas can handle it.
 ##
-## Sirve para separar dos causas que se ven igual en pantalla: que el importador descarte Shapes
-## (radio, presupuesto de celdas) o que el atlas de bricks se quede sin sitio y el renderer no las
-## coloque. Sin colisión, que es el 96 % del tiempo y aquí no aporta nada.
+## Distinguishes two causes that look the same on screen: the importer discarding Shapes (radius or
+## cell budget), or the brick atlas running out of space and the renderer failing to place them.
+## Disable collision, which takes 96% of the time and adds nothing here.
 
 var MAP := VoxelProjectPaths.teardown_map_path()
 
@@ -22,24 +22,24 @@ func _run() -> void:
 	print("IMPORT_MS ", Time.get_ticks_msec() - started)
 	print("REPORT ", JSON.stringify(report))
 
-	# El decorado atravesable de Teardown tiene que llegar a Jolt con la colisión apagada de verdad:
-	# si se cuela, son paredes invisibles repartidas por el mapa.
+	# Teardown's walk-through scenery must reach Jolt with collision truly disabled; otherwise, it
+	# creates invisible walls throughout the map.
 	var sin_colision := 0
 	var cables := 0
 	for node in world.get_children():
 		if node is VoxelBody3D and not (node as VoxelBody3D).collision_enabled:
-			# Las cuatro ruedas visuales de un coche comparten ahora un Body sin colisión. La métrica
-			# del importador siempre contó Shapes, no Bodies, así que se compara la misma unidad.
+			# A car's four visual wheels now share one Body without collision. The importer metric
+			# has always counted Shapes, not Bodies, so compare the same unit.
 			sin_colision += (node as VoxelBody3D).get_shapes().size()
 		elif node is MeshInstance3D and (node as MeshInstance3D).mesh != null:
 			cables += (node as MeshInstance3D).mesh.get_surface_count()
 	assert(sin_colision == int(report.no_collide),
-		"Shapes sin colisión %d != no_collide %d" % [sin_colision, report.no_collide])
+		"Shapes without collision %d != no_collide %d" % [sin_colision, report.no_collide])
 	assert(int(report.ropes) == 0 or world.get_node_or_null("TeardownRopes") is VoxelRopes,
-		"los cables no llegaron a la escena")
+		"the cables did not reach the scene")
 	assert(int(report.skipped_far) == 0 and int(report.skipped_budget) == 0,
-		"el importador está descartando Shapes")
-	print("CHECKS ok sin_colision=%d cables=%d" % [sin_colision, report.ropes])
+		"the importer is discarding Shapes")
+	print("CHECKS ok no_collision=%d cables=%d" % [sin_colision, report.ropes])
 
 	var shapes := 0
 	var bricks := 0
@@ -58,8 +58,8 @@ func _run() -> void:
 		% [shapes, bricks, macros, layers, cap,
 			per_layer * mini(layers, cap) * 512.0 / 1048576.0])
 
-	# El empaquetado del atlas de macroceldas es CPU pura, así que se puede repetir aquí sin GPU. Lo
-	# que no entra deja de dibujarse pero conserva su collider: es la firma de un "muro invisible".
+	# Packing the macrocell atlas is pure CPU work, so it can be repeated here without a GPU. A Shape
+	# that does not fit stops rendering but keeps its collider: the signature of an "invisible wall."
 	print("PACKER ", JSON.stringify(_simulate_packer(world)))
 	quit(0)
 

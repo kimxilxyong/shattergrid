@@ -1,21 +1,21 @@
 class_name VoxelShapeGrid
 extends RefCounted
-## Rejilla uniforme de Shapes, para preguntar "quien toca esta caja" sin recorrerlas todas.
+## Uniform grid of Shapes, used to ask "which ones intersect this box" without scanning them all.
 ##
-## El refresco del volumen de ocupacion barria las 2312 Shapes de Lee pidiendo `world_bounds()` una
-## por una: medido, 10 ms fijos por region, y hasta cuatro regiones por frame. Ese barrido era el
-## coste entero — rasterizar de verdad una caja de 4 m son 0,05 ms, y una region de 1 m con cero
-## Shapes dentro costaba lo mismo que una con cuatro. La rejilla se construye una vez y solo se
-## reinserta lo que se mueve, que son los cuerpos despiertos.
+## Refreshing the occupancy volume scanned all 2,312 Shapes in Lee, requesting `world_bounds()` one
+## at a time: a measured 10 ms per region, with up to four regions per frame. That scan was the
+## entire cost—rasterizing a 4 m box takes 0.05 ms, while a 1 m region with no Shapes cost as much
+## as one containing four. The grid is built once, and only moving Shapes (awake bodies) are
+## reinserted.
 
-## 8 m: una Shape corriente de Lee cae en una o dos celdas y un escombro en una.
+## 8 m: a typical Shape in Lee occupies one or two cells, and a debris piece occupies one.
 const CELL_SIZE := 8.0
-## Una Shape que ocupe mas celdas que esto se guarda aparte y se comprueba en toda consulta:
-## reinsertarla costaria mas que el barrido que evitamos. En Lee la mayor son 22x9x18 m, 12 celdas.
+## Shapes occupying more cells than this are stored separately and checked on every query:
+## reinserting one would cost more than the scan we avoid. Lee's largest is 22x9x18 m, or 12 cells.
 const MAX_CELLS := 512
 
 var _cells := {}
-## id de instancia -> celdas que ocupa, para poder sacarla sin recorrer la rejilla.
+## Instance ID -> occupied cells, so a Shape can be removed without scanning the grid.
 var _placed := {}
 var _oversized := {}
 
@@ -54,9 +54,9 @@ func remove_id(key: int) -> void:
 	for cell: Vector3i in _placed[key]:
 		var bucket: Array = _cells.get(cell, [])
 		for position in range(bucket.size() - 1, -1, -1):
-			# El Variant conserva el id de un Object liberado, pero intentar castearlo ya lanza error
-			# antes de que una variable tipada pueda comprobar null. Validar el Variant primero permite
-			# limpiar la celda sin tocar el objeto muerto.
+			# A Variant retains the ID of a freed Object, but casting it raises an error before a
+			# typed variable can check for null. Validate the Variant first to clean the cell without
+			# touching the dead object.
 			var candidate: Variant = bucket[position]
 			if not is_instance_valid(candidate):
 				bucket.remove_at(position)
@@ -77,7 +77,7 @@ func size() -> int:
 	return _placed.size() + _oversized.size()
 
 
-## Las Shapes que solapan la caja de verdad, ya filtradas por `world_bounds()`.
+## Shapes that actually overlap the box, already filtered by `world_bounds()`.
 func query(region: AABB) -> Array[VoxelShape3D]:
 	var result: Array[VoxelShape3D] = []
 	var seen := {}

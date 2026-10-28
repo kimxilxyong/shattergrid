@@ -9,7 +9,7 @@ func _initialize() -> void:
 	var world := VoxelWorld3D.new()
 	root.add_child(world)
 
-	# 1. Importar: leer XML, decodificar los .vox, crear VoxelShapeData y las formas de colision.
+	# 1. Import: read XML, decode .vox files, create VoxelShapeData and collision shapes.
 	var t := Time.get_ticks_msec()
 	var report := TeardownMapImporter.import_map(world, XML, Vector3.INF, 1.0e9, Vector3.ZERO, true)
 	var import_ms := Time.get_ticks_msec() - t
@@ -33,7 +33,7 @@ func _initialize() -> void:
 		pool.extract_uploads(base, pool.get_used() - base)
 	var atlas_ms := Time.get_ticks_msec() - t
 
-	# 4. Clipmap de sombras: 4 niveles del mapa entero.
+	# 4. Shadow clipmap: four levels covering the entire map.
 	var group := {"shapes": [], "transforms": [], "voxel_sizes": PackedFloat32Array()}
 	for shape: VoxelShape3D in shapes:
 		group.shapes.append(shape.data)
@@ -47,17 +47,17 @@ func _initialize() -> void:
 		)
 	var clipmap_ms := Time.get_ticks_msec() - t
 
-	print("shapes=%d voxeles=%s bricks=%d" % [
+	print("shapes=%d voxels=%s bricks=%d" % [
 		shapes.size(), report.get("voxels", "?"), bricks
 	])
-	print("--- reparto del arranque ---")
-	print("importar (con colision) %6d ms" % import_ms)
-	print("  de ellos colision     %6s ms" % report.get("collision_ms", "?"))
-	print("atlas de bricks         %6d ms" % atlas_ms)
-	print("clipmap de sombras      %6d ms" % clipmap_ms)
-	print("--> hasta poder jugar   %6d ms" % (import_ms + atlas_ms + clipmap_ms))
-	print("total de la sonda       %6d ms" % (Time.get_ticks_msec() - total))
-	# La carga es lenta a proposito: se construye todo al importar para no dar tirones jugando.
-	assert(shapes.size() > 0, "no se importo nada")
+	print("--- startup breakdown ---")
+	print("import (with collision) %6d ms" % import_ms)
+	print("  of which collision    %6s ms" % report.get("collision_ms", "?"))
+	print("brick atlas             %6d ms" % atlas_ms)
+	print("shadow clipmap          %6d ms" % clipmap_ms)
+	print("--> ready to play       %6d ms" % (import_ms + atlas_ms + clipmap_ms))
+	print("total probe time        %6d ms" % (Time.get_ticks_msec() - total))
+	# Loading is intentionally slow: everything is built during import to avoid gameplay stutter.
+	assert(shapes.size() > 0, "nothing was imported")
 	print("OK")
 	quit()

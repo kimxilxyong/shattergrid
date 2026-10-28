@@ -8,12 +8,12 @@ extends Node
 const MIN_ATLAS_DEPTH := 256
 const MAX_ATLAS_DEPTH := 2048
 
-## Lado del atlas de bricks en bricks, no en texeles: 128 x 128 deja la textura en 1024 x 1024 y solo
-## crece en profundidad, que es el eje con margen (2048 texeles = 256 capas de bricks).
+## Brick-atlas side length, measured in bricks rather than texels: 128 x 128 produces a 1024 x 1024
+## texture and grows only in depth, the axis with headroom (2048 texels = 256 brick layers).
 const BRICK_GRID_SIDE := 128
 
-## Holgura sobre los bricks que pide el mapa, para que los fragmentos que nacen al romper algo
-## quepan sin reconstruir el atlas entero.
+## Headroom beyond the bricks requested by the map, so fragments created by destruction fit without
+## rebuilding the entire atlas.
 const BRICK_HEADROOM := 13
 
 ## The BVH and Shape storage keep fixed leaves for runtime fragments. Activating a reserved leaf
@@ -22,8 +22,8 @@ const FRAGMENT_ENTRY_HEADROOM := 256
 const SMALL_MAP_INITIAL_ENTRY_HEADROOM := 512
 const SMALL_MAP_SHAPE_THRESHOLD := 64
 
-## Techo de celdas del atlas de macroceldas. Es la misma rejilla dividida entre ocho, así que el mapa
-## entero son 885 K celdas: sobra de largo.
+## Maximum cell count of the macro-cell atlas. It is the same grid divided by eight, so the entire
+## map uses 885 K cells, well below the limit.
 const MAX_MACRO_ATLAS_CELLS := 16_000_000
 
 var world: VoxelWorld3D
@@ -44,8 +44,8 @@ var _surface_animation_revisions := {}
 var _animated_shapes: Array[VoxelShape3D] = []
 var _entry_indices := {}
 var _reserved_entry_indices := {}
-## Una hoja que nació en el BVH de vidrio puede alojar cualquier Shape; una hoja que no nació allí
-## solo puede reciclarse para opacos porque la topología secundaria permanece fija.
+## A leaf created in the glass BVH can hold any Shape; a leaf not created there can only be reused
+## for opaque Shapes because the secondary topology remains fixed.
 var _entry_glass_capable := {}
 var _free_entry_indices := PackedInt32Array()
 var _reserved_entry_headroom := FRAGMENT_ENTRY_HEADROOM
@@ -70,15 +70,16 @@ var _transform_tracker := VoxelTransformTracker.new()
 var _movable_transforms := {}
 
 
-## El arranque del renderer son ~3,6 s con el mapa entero (atlas ~1 s, volumen de sombras ~2,6 s), y
-## ocurre después de importar. `setup_progressive` reparte ese tramo en la pantalla de carga;
-## `setup` sigue siendo la llamada de siempre para los bancos de pruebas.
+## Renderer startup takes about 3.6 s with the full map (atlas ~1 s, shadow volume ~2.6 s), after
+## import. `setup_progressive` reports progress on the loading screen; `setup` remains the usual call
+## for test harnesses.
 func setup(voxel_world: VoxelWorld3D, camera: Camera3D) -> bool:
-	# Vía `Callable` para que el analizador no exija `await`: sin pantalla `_setup` no se suspende.
+	# Call through `Callable` so the analyzer does not require `await`; without a loading screen,
+	# `_setup` does not suspend.
 	var result: Variant = _setup.call(voxel_world, camera, Callable())
 	if result is bool:
 		return result
-	push_error("VoxelRenderSystem: el arranque sin pantalla de carga se suspendió")
+	push_error("VoxelRenderSystem: startup without a loading screen was suspended")
 	return false
 
 
@@ -104,13 +105,13 @@ func _setup(voxel_world: VoxelWorld3D, camera: Camera3D, progress: Callable) -> 
 				_watch_shape_surface(shape)
 	if _shapes.is_empty():
 		return true
-	# Cinco edificios + 256 reservas era el caso patológico: una destrucción normal cruzaba el techo
-	# por muy poco y pagaba la reconstrucción durante juego. Los mapas grandes ya aportan miles de
-	# hojas reciclables y mantienen la reserva corta para no aumentar su recorrido por píxel.
+	# Five buildings plus 256 reserved leaves was the pathological case: ordinary destruction barely
+	# exceeded capacity and triggered a rebuild during gameplay. Large maps already provide thousands
+	# of recyclable leaves, so keep the reserve small to avoid increasing per-pixel traversal cost.
 	_reserved_entry_headroom = SMALL_MAP_INITIAL_ENTRY_HEADROOM \
 		if _shapes.size() <= SMALL_MAP_SHAPE_THRESHOLD else FRAGMENT_ENTRY_HEADROOM
 	if progress.is_valid():
-		progress.call(0.0, "Construyendo el atlas de voxeles…")
+		progress.call(0.0, "Building voxel atlas…")
 		await Engine.get_main_loop().process_frame
 	if not _rebuild_atlases():
 		return false
@@ -118,7 +119,7 @@ func _setup(voxel_world: VoxelWorld3D, camera: Camera3D, progress: Callable) -> 
 	shadow_clipmaps.name = "VoxelShadowClipmaps"
 	add_child(shadow_clipmaps)
 	if world.renderer_settings.sun_shadows_enabled:
-		# El tramo de sombras es el grueso del arranque: se le da del 20 % al 97 % de la barra.
+		# Shadow setup is most of startup, so it occupies 20% to 97% of the progress bar.
 		var shadows := func(fraction: float, label: String) -> void:
 			progress.call(0.20 + 0.77 * fraction, label)
 		var started := false
@@ -133,8 +134,8 @@ func _setup(voxel_world: VoxelWorld3D, camera: Camera3D, progress: Callable) -> 
 			shadow_clipmaps.get_dynamic_rids(),
 			shadow_clipmaps.get_shader_metadata()
 		)
-		# Antes la clipmap avisaba aqui cada vez que se desplazaba. El volumen es fijo: los metadatos
-		# se entregan una vez, arriba, y no vuelven a cambiar.
+		# The clipmap used to notify here every time it moved. The volume is fixed: metadata is
+		# provided once above and never changes.
 	else:
 		shadow_clipmaps.set_process(false)
 	_refresh_effect_upload_sources()
@@ -145,7 +146,7 @@ func _setup(voxel_world: VoxelWorld3D, camera: Camera3D, progress: Callable) -> 
 	local_shadow_pool.volumes_changed.connect(effect.configure_local_shadow_volumes)
 	effect.configure_local_shadow_volumes([], local_shadow_pool.get_shader_metadata())
 	if progress.is_valid():
-		progress.call(1.0, "Listo")
+		progress.call(1.0, "Ready")
 	return true
 
 
@@ -167,15 +168,15 @@ func register_shape(shape: VoxelShape3D) -> void:
 			"new_palette:%s" % shape.name if palette_missing
 			else "renderer_entry_capacity:%s" % shape.name
 		)
-		# No se reconstruye dentro de la señal de destrucción: una explosión puede crear cientos de
-		# fragmentos. Se agrupan todos y `_process` hace una sola reconstrucción al final del frame.
-		# `_sync_metadata` incluye todas las Shapes vivas y vuelve a dejar HEADROOM hojas libres, de
-		# modo que el límite deja de ser fijo sin encarecer de entrada los mapas pequeños.
+		# Do not rebuild inside the destruction signal: an explosion can create hundreds of fragments.
+		# Batch them all, then let `_process` rebuild once at the end of the frame. `_sync_metadata`
+		# includes all live Shapes and restores HEADROOM free leaves, so capacity is no longer fixed
+		# without adding startup cost for small maps.
 		_metadata_dirty = true
 		_palette_dirty = _palette_dirty or palette_missing
 		if not palette_missing:
-			# Después de crecer basta volver a dejar el margen normal; todas las Shapes activas ya forman
-			# parte de la nueva topología.
+			# After growing, restore the normal headroom; all active Shapes are already part of the new
+			# topology.
 			_reserved_entry_headroom = FRAGMENT_ENTRY_HEADROOM
 			_entry_capacity_dirty = true
 
@@ -190,15 +191,15 @@ func unregister_shape(shape: VoxelShape3D) -> void:
 	_glass_usage.erase(shape.get_instance_id())
 
 
-## Las Shapes que pueden haber cambiado de sitio desde el frame anterior, o sea las de cuerpos
-## dinamicos. Barrer los 2312 nodos del mapa cada frame era puro coste de GDScript.
+## Shapes that may have moved since the previous frame: those belonging to dynamic bodies. Scanning
+## all 2,312 map nodes every frame was pure GDScript overhead.
 ##
-## Se pregunta al mundo en el momento en vez de mantener una cache, que es donde estaba el fallo: la
-## cache se llenaba al registrar la Shape, asi que una que pasaba a dinamica despues -una torre que
-## pierde su apoyo, un tramo suelto que estrena cuerpo- no entraba nunca. El cuerpo caia y su
-## transformada no volvia a subir a la GPU: quedaba un fantasma de pie en el sitio de antes,
-## atravesable e indestructible porque los voxeles de verdad ya estaban en otro lado. La sombra si se
-## movia, porque la clipmap ya leia esta misma lista.
+## Query the world on demand instead of maintaining a cache, which caused the bug: the cache was
+## populated when the Shape was registered, so a Shape that became dynamic later (a tower losing
+## support, or a loose section getting a new body) was never included. The body fell, but its
+## transform was never uploaded to the GPU again: a standing ghost remained at its old position,
+## passable and indestructible because the real voxels were elsewhere. Its shadow did move because
+## the clipmap already read this same list.
 func movable_shapes() -> Array[VoxelShape3D]:
 	var result: Array[VoxelShape3D] = []
 	_movable_transforms.clear()
@@ -224,9 +225,9 @@ func _process(delta: float) -> void:
 	var transform_updates: Array[Dictionary] = []
 	for shape in movable_shapes():
 		var key := shape.get_instance_id()
-		# El compositor no es un VisualInstance3D y por ello Godot no interpola estos metadatos por
-		# nosotros. Subir la muestra de render evita que carrocería, ruedas y cascotes avancen a saltos
-		# de física aunque la cámara ya sea suave.
+		# The compositor is not a VisualInstance3D, so Godot does not interpolate these metadata for
+		# us. Uploading the render sample prevents the chassis, wheels, and debris from stepping with
+		# physics even when the camera is already smooth.
 		var render_transform: Transform3D = _movable_transforms[key] \
 			if _movable_transforms.has(key) else shape.get_global_transform_interpolated()
 		if _transforms.has(key) and _transform_equal(_transforms[key], render_transform):
@@ -263,9 +264,9 @@ func _process(delta: float) -> void:
 				live.append(shape)
 				live_keys[shape.get_instance_id()] = true
 		_shapes = live
-		# Un Object liberado no puede cruzar el límite de una función con parámetro tipado: el error
-		# ocurre antes de entrar a la guarda `is_instance_valid`. Se limpian los metadatos por el id
-		# estable que ya usa el atlas, sin volver a tocar el Object muerto.
+		# A freed Object cannot cross a function boundary with a typed parameter: the error occurs
+		# before the `is_instance_valid` guard. Clear metadata by the stable ID already used by the
+		# atlas without touching the dead Object again.
 		for key: Variant in _entry_indices.keys():
 			if not live_keys.has(key):
 				_deactivate_entry_key(int(key))
@@ -281,10 +282,9 @@ func _process(delta: float) -> void:
 		_entry_capacity_dirty = false
 
 
-## Joints y controladores authored pueden recolocar un Body después de que Jolt ya lo marcó como
-## dormido, sin emitir otra transición awake. Una reconciliación canónica a 1 Hz cubre ese caso sin
-## volver a recorrer 648 props en cada frame; solo genera uploads para las poses que de verdad
-## difieren de lo ya enviado.
+## Authored joints and controllers can move a Body after Jolt marks it asleep without emitting
+## another awake transition. A canonical reconciliation at 1 Hz handles this without scanning 648
+## props every frame; it only uploads poses that actually differ from the last upload.
 func _append_settled_pose_repairs(updates: Array[Dictionary]) -> void:
 	if world == null:
 		return
@@ -315,8 +315,8 @@ func _append_settled_pose_repairs(updates: Array[Dictionary]) -> void:
 				last_metadata_fallback_reason = "settled_shape_without_entry:%s" % shape.name
 
 
-## Censo CPU de los cuatro registros que deben describir exactamente las mismas Shapes. Sirve para
-## convertir un posible fallo visual futuro en una causa concreta y también para pruebas de estrés.
+## CPU census of the four registries that must describe exactly the same Shapes. It turns a
+## potential future visual bug into a concrete cause and also supports stress tests.
 func get_coherence_snapshot() -> Dictionary:
 	var effect_entry_count := effect.get_entry_count() if effect != null else 0
 	var pending_gpu_updates := effect.get_pending_gpu_update_count() if effect != null else 0
@@ -351,8 +351,8 @@ func get_coherence_snapshot() -> Dictionary:
 				):
 			effect_pose_mismatches.append(shape.name)
 		var owner := _body_of_shape(shape)
-		# Un cuerpo despierto puede avanzar entre el tick físico y este censo. Al dormir ya no existe
-		# esa ambigüedad: si la pose final de escena y la subida difieren, queda un fantasma visible.
+		# An awake body can move between the physics tick and this census. When asleep, that ambiguity
+		# is gone: if the final scene pose and upload differ, a visible ghost remains.
 		if owner != null and owner.state == VoxelBody3D.State.DYNAMIC and not owner.is_awake() \
 				and (world == null or not world.is_body_externally_transform_tracked(
 					owner.get_instance_id()
@@ -392,8 +392,8 @@ func get_coherence_snapshot() -> Dictionary:
 	}
 
 
-## Foto puntual para regresiones de movimiento. `scheduled` es lo que el sistema cree haber subido
-## y `effect` es el registro exacto que el compositor empaquetó para la hoja correspondiente.
+## Snapshot for movement regressions. `scheduled` is what the system believes it uploaded, and
+## `effect` is the exact entry the compositor packed for the corresponding leaf.
 func get_shape_pose_snapshot(shape: VoxelShape3D) -> Dictionary:
 	if shape == null or not is_instance_valid(shape):
 		return {"valid": false}
@@ -447,9 +447,9 @@ func _rebuild_atlases() -> bool:
 	_shapes = live
 	if _shapes.is_empty():
 		return true
-	# La reconstrucción es transaccional. Hasta que los dos atlas candidatos estén completos se
-	# conservan el pool, slots y texturas que el frame anterior sigue dibujando. El código anterior
-	# borraba del registro de render las Shapes que no entraban, aunque su colisión siguiera viva.
+	# Rebuilding is transactional. Keep the pool, slots, and textures still drawn by the previous
+	# frame until both candidate atlases are complete. The old code removed Shapes that did not fit
+	# from the render registry even though their collision remained active.
 	var previous_bricks = _bricks
 	var previous_brick_table := _brick_table
 	var previous_brick_table_dirty := _brick_table_dirty
@@ -462,12 +462,12 @@ func _rebuild_atlases() -> bool:
 	var brick_grid := _plan_brick_grid(total_bricks)
 	_bricks = VoxelBrickPool.new()
 	if not _bricks.configure(brick_grid):
-		push_error("VoxelRenderSystem: no se pudo reservar el pool de %d bricks" % total_bricks)
+		push_error("VoxelRenderSystem: could not reserve the %d-brick pool" % total_bricks)
 		_bricks = previous_bricks
 		return false
-	# Se pide cuatro veces el volumen que hace falta: el empaquetado por estantes desperdicia mucho
-	# con 2312 Shapes de tamaños dispares, y aquí cada celda cubre 512 voxeles, así que la holgura
-	# cuesta megabytes en vez de cientos.
+	# Request four times the required volume: shelf packing wastes a lot with 2,312 differently sized
+	# Shapes, and each cell here covers 512 voxels, so the extra room costs megabytes instead of
+	# hundreds.
 	var candidate_dimensions := _plan_atlas(
 		max_macro_x, max_macro_y, total_macro_volume * 4, MAX_MACRO_ATLAS_CELLS, 512
 	)
@@ -495,7 +495,7 @@ func _rebuild_atlases() -> bool:
 			break
 	if not layout_ready:
 		push_error(
-			"VoxelRenderSystem: reconstrucción cancelada; %d Shapes no caben sin perder sincronía"
+			"VoxelRenderSystem: rebuild cancelled; %d Shapes do not fit without losing synchronization"
 			% _shapes.size()
 		)
 		_bricks = previous_bricks
@@ -554,8 +554,8 @@ static func _grow_macro_atlas(current: Vector3i) -> Vector3i:
 	return Vector3i.ZERO
 
 
-## Rejilla del pool de bricks para un número dado de bricks ocupados. Solo crece en Z: X e Y se
-## quedan fijos en 128 bricks (1024 texeles) porque es donde está el límite de tamaño de textura.
+## Brick-pool grid for a given number of occupied bricks. It grows only along Z: X and Y remain
+## fixed at 128 bricks (1,024 texels), where the texture-size limit applies.
 static func _plan_brick_grid(brick_count: int) -> Vector3i:
 	var per_layer := BRICK_GRID_SIDE * BRICK_GRID_SIDE
 	var wanted := maxi(1, brick_count * BRICK_HEADROOM / 10)
@@ -563,12 +563,11 @@ static func _plan_brick_grid(brick_count: int) -> Vector3i:
 	return Vector3i(BRICK_GRID_SIDE, BRICK_GRID_SIDE, layers)
 
 
-## Elige el tamaño del atlas de macroceldas para un volumen dado. Se busca un cubo con lado potencia
-## de dos que deje sitio de sobra para el desperdicio del empaquetado, sin pasarse del techo.
+## Choose the macro-cell atlas size for a given volume. Find a power-of-two cube with enough room
+## for packing waste, without exceeding the limit.
 static func _plan_atlas(max_x: int, max_y: int, volume: int, cell_budget: int, side_cap: int) -> Vector3i:
 	var side := maxi(1, _next_power_of_two(maxi(max_x, max_y)))
-	# 1,6x de holgura: el empaquetado por estantes deja huecos, y quedarse corto significa Shapes
-	# invisibles.
+	# 1.6x headroom: shelf packing leaves gaps, and falling short means invisible Shapes.
 	while side < side_cap and side * side * side < volume * 16 / 10:
 		side *= 2
 	var depth := clampi(
@@ -594,13 +593,13 @@ func _can_allocate(shape: VoxelShape3D) -> bool:
 	return not _fit(shape.data.get_macro_dimensions()).is_empty()
 
 
-## Empaquetado por estantes en tres dimensiones sobre el atlas de macroceldas: se avanza en X hasta
-## agotar la fila, se sube en Y hasta agotar la capa y se avanza en Z. Apilar solo en Z, que es lo
-## que hacía antes, agota la profundidad con dos docenas de Shapes grandes.
+## Three-dimensional shelf packing on the macro-cell atlas: advance along X to fill a row, move up
+## along Y to fill a layer, then advance along Z. Stacking only along Z, as before, exhausts depth
+## with two dozen large Shapes.
 ##
-## Sin ordenar por altura a propósito: es la mejora estándar del shelf packing, pero aquí mete
-## primero las Shapes grandes y llenan el atlas antes — medido sobre el atlas denso, entraban 619
-## Shapes sin ordenar y solo 308 ordenadas. El orden del mundo reparte mejor.
+## Intentionally do not sort by height: although standard for shelf packing, this puts large Shapes
+## first and fills the atlas sooner. In the dense atlas, 619 unsorted Shapes fit versus only 308
+## sorted Shapes. World order distributes them better.
 func _fit(dimensions: Vector3i) -> Dictionary:
 	var cursor := _cursor
 	var shelf := _shelf_height
@@ -628,8 +627,8 @@ func _allocate_shape(shape: VoxelShape3D) -> bool:
 	var placement := _fit(macro_dimensions)
 	if placement.is_empty():
 		return false
-	# El pool reserva un brick por macrocelda ocupada y devuelve la tabla que el shader consulta.
-	# Sale vacía cuando ya no queda sitio, y entonces la Shape no se coloca en ningún sitio.
+	# The pool reserves one brick per occupied macro-cell and returns the table queried by the shader.
+	# It returns empty when there is no space left, and the Shape cannot be placed.
 	var pool_base := _bricks.get_used()
 	var table := _bricks.append_shape(shape.data)
 	if table.is_empty():
@@ -669,12 +668,11 @@ func _upload_entire_shape(shape: VoxelShape3D) -> void:
 	_copy_macros_to_cpu_atlas(shape)
 	var slot: Dictionary = _slots[shape.get_instance_id()]
 	var macro_dimensions: Vector3i = slot.macro_dimensions
-	# Los bricks de una Shape van seguidos en el pool pero no en la textura. Antes eso se resolvía
-	# recorriendo las macroceldas en GDScript y subiendo cada brick por su cuenta: en el mapa de
-	# Teardown eran 549.804 vueltas — el 53 % sobre macroceldas vacías — y 260.672 subidas sueltas,
-	# cada una con su textura de staging. `append_shape` ya dejó los bytes escritos en el pool, así
-	# que basta con sacarlos en tandas y dejar que el atlas haga una copia por brick desde una sola
-	# fuente. Un fragmento recién roto sigue siendo una tanda y ya está.
+	# A Shape's bricks are contiguous in the pool but not in the texture. Previously, GDScript scanned
+	# the macro-cells and uploaded each brick separately: 549,804 iterations on the Teardown map
+	# (53% over empty macro-cells) and 260,672 individual uploads, each with a staging texture.
+	# `append_shape` has already written the bytes into the pool, so extract them in batches and let
+	# the atlas copy each brick from a single source. A newly broken fragment is still one batch.
 	for upload: Dictionary in _bricks.extract_uploads(slot.pool_base, slot.pool_count):
 		_voxel_atlas.update_compact_regions(upload.bytes, upload.source_size, upload.copies)
 	_macro_atlas.update_region(
@@ -686,9 +684,9 @@ func _on_voxels_changed(
 	shape: VoxelShape3D, _world_aabb: AABB, dirty_min: Vector3i, dirty_max: Vector3i
 ) -> void:
 	var started := Time.get_ticks_usec()
-	# El slot del volumen fuente queda libre antes de registrar sus fragmentos. Antes se esperaba al
-	# barrido de limpieza de un segundo: durante ráfagas se agotaban las 256 hojas reservadas y el
-	# cascote seguía teniendo colisión pero desaparecía hasta que otro slot se liberaba.
+	# Free the source volume's slot before registering its fragments. Previously, cleanup waited for
+	# a one-second sweep; bursts could exhaust the 256 reserved leaves, making debris keep its
+	# collision but disappear until another slot was freed.
 	if shape.voxel_count() == 0:
 		unregister_shape(shape)
 		return
@@ -702,8 +700,8 @@ func _on_voxels_changed(
 	var base: int = slot.brick_table_base
 	var low := dirty_min / 8
 	var high := dirty_max / 8
-	# El cráter toca unos pocos bricks: cada uno se reescribe entero y se sube suelto, que sale más
-	# barato que recortar el cuboide sucio de un pool disperso.
+	# A crater touches only a few bricks: rewrite and upload each whole brick separately, which is
+	# cheaper than cropping a dirty cuboid from a sparse pool.
 	for z in range(low.z, high.z + 1):
 		for y in range(low.y, high.y + 1):
 			for x in range(low.x, high.x + 1):
@@ -716,7 +714,7 @@ func _on_voxels_changed(
 					_bricks.refresh_brick(shape.data, brick_slot, Vector3i(x, y, z)),
 					_bricks.get_slot_origin(brick_slot), Vector3i(8, 8, 8)
 				)
-	# La ocupación de macroceldas es derivada y diminuta; solo se copia el cuboide sucio.
+	# Macro-cell occupancy is derived and tiny; copy only the dirty cuboid.
 	var macro_source := shape.data.get_macro_occupancy()
 	var macro_origin: Vector3i = slot.macro_origin
 	for z in range(low.z, high.z + 1):
@@ -749,9 +747,9 @@ func _sync_metadata(include_palette: bool) -> void:
 	var palette_texels := PackedColorArray()
 	if include_palette:
 		_palette_rows.clear()
-		# Cada fila contiene 256 colores sRGB seguidos por 256 texels de propiedades:
-		# roughness, metallic, emission/32. El shader los mantiene separados para no aplicar la
-		# conversion sRGB a datos lineales.
+		# Each row contains 256 sRGB colors followed by 256 property texels:
+		# roughness, metallic, emission/32. The shader keeps them separate to avoid applying the
+		# sRGB conversion to linear data.
 		palette_texels.resize(maxi(1, _shapes.size()) * 512)
 	for index in _shapes.size():
 		var shape := _shapes[index]
@@ -874,9 +872,9 @@ func _deactivate_entry_key(key: int) -> void:
 		return
 	var entry_index := int(_entry_indices[key])
 	effect.update_entries([{"index": entry_index, "entry": _placeholder_entry(entry_index)}])
-	# Una hoja inicial cuya Shape murió es tan reutilizable como una reserva original. Convertirla en
-	# reserva mantiene fija la topología BVH, evita aumentar el coste de recorrido y hace que partir
-	# una Shape recicle su propia hoja en el mismo evento.
+	# An initial leaf whose Shape was freed is as reusable as an original reserve. Convert it to a
+	# reserve to keep BVH topology fixed, avoid increasing traversal cost, and let a split Shape reuse
+	# its own leaf in the same event.
 	_reserved_entry_indices[entry_index] = true
 	if not _free_entry_indices.has(entry_index):
 		_free_entry_indices.append(entry_index)

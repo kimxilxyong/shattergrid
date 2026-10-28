@@ -74,9 +74,9 @@ func _process(_delta: float) -> void:
 	)
 	if candidates.size() > MAX_LIGHTS:
 		candidates.resize(MAX_LIGHTS)
-	# Las luces móviles de vehículos sí iluminan el DDA, pero no reconstruyen un volumen 128³ en
-	# cada frame. Primero van las que sí tienen volumen, para conservar la correspondencia índice ↔
-	# textura que usa el shader; después se añaden hasta 32 luces sin sombra.
+	# Moving vehicle lights still illuminate the DDA, but do not rebuild a 128³ volume every frame.
+	# Add lights with volumes first to preserve the index ↔ texture mapping used by the shader, then
+	# add up to 32 lights without shadows.
 	var shadow_candidates: Array[Light3D] = []
 	for light in candidates:
 		if not bool(light.get_meta("voxel_shadowless", false)):
@@ -153,9 +153,9 @@ func _allocate(light: Light3D) -> void:
 	_dirty_lights[light.get_instance_id()] = true
 
 
-## Origen del volumen de una luz, en celdas enteras. El rasterizador de C++ trabaja con el origen
-## en celdas, y redondear aquí y escribir lo mismo en los metadatos deja el volumen y lo que lee el
-## shader en el mismo sitio. El desplazamiento contra el origen sin ajustar es de menos de una celda.
+## Origin of a light volume, in integer cells. The C++ rasterizer works in cells; rounding here and
+## storing the same value in metadata keeps the volume and shader data in sync. The offset from the
+## unadjusted origin is less than one cell.
 static func _volume_origin_cells(light: Light3D, cell_size: float) -> Vector3i:
 	var half_extent := cell_size * LOGICAL_RESOLUTION * 0.5
 	return Vector3i(((light.global_position - Vector3.ONE * half_extent) / cell_size).floor())
@@ -168,8 +168,8 @@ func _rebuild_slot(slot: Dictionary) -> void:
 	var bounds := AABB(
 		Vector3(origin_cells) * cell_size, Vector3.ONE * cell_size * LOGICAL_RESOLUTION
 	)
-	# Solo las Shapes que tocan la caja de la luz. El descarte también lo hace el rasterizador, pero
-	# hacerlo aquí ahorra pasarle miles de Shapes que no pintan nada.
+	# Only Shapes that intersect the light bounds. The rasterizer also rejects them, but doing it
+	# here avoids passing thousands of irrelevant Shapes to it.
 	var shapes := []
 	var transforms := []
 	var voxel_sizes := PackedFloat32Array()
@@ -180,9 +180,9 @@ func _rebuild_slot(slot: Dictionary) -> void:
 			shapes.append(shape.data)
 			transforms.append(shape.global_transform)
 			voxel_sizes.append(shape.voxel_size)
-	# Esto era el mismo bucle por voxel vivo que tenía la clipmap de sombra de sol, y con el mismo
-	# problema: 1,58 M voxeles/s en GDScript. Ahí solo dolía al cargar; aquí se rehace en ejecución
-	# cada vez que una luz se ensucia, así que era un tirón en medio de la partida.
+	# This used the same live-voxel loop as the sun shadow clipmap, with the same problem:
+	# 1.58 M voxels/s in GDScript. There it only hurt during loading; here it rebuilt at runtime
+	# whenever a light became dirty, causing a stutter during gameplay.
 	var bytes: PackedByteArray = slot.bytes
 	if shapes.is_empty():
 		bytes.fill(0)

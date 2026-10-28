@@ -1,18 +1,18 @@
 extends SceneTree
-## Regresión del presupuesto visual: una hoja liberada se reutiliza sin perder los metadatos del
-## pase transparente. No necesita RenderingDevice; valida la topología y los registros CPU.
+## Visual-budget regression: a freed entry can be reused without losing transparent-pass metadata.
+## No RenderingDevice is required; this validates CPU-side topology and records.
 
 
 
 var failures := 0
 
 
-## `assert` desaparece en las compilaciones de release: un test que solo afirma con asserts pasaria
-## siempre. El fallo se cuenta y sale por el codigo de salida.
+## `assert` is removed from release builds: a test using only assertions would always pass. Count
+## failures and return them through the exit code.
 func _check(condition: bool, message := "") -> void:
 	if not condition:
 		failures += 1
-		printerr("  FALLO ", message)
+		printerr("  FAIL ", message)
 
 func _entry(dimensions: Vector3i, has_glass: bool) -> Dictionary:
 	return {
@@ -33,10 +33,10 @@ func _initialize() -> void:
 	renderer._free_entry_indices = PackedInt32Array([3, 7])
 	renderer._entry_glass_capable = {3: false, 7: true}
 	_check(renderer._find_free_entry_offset(false) == 1,
-		"un opaco puede reutilizar cualquier hoja libre")
+		"an opaque entry can reuse any free slot")
 	renderer._free_entry_indices = PackedInt32Array([7, 3])
 	_check(renderer._find_free_entry_offset(true) == 0,
-		"un vidrio no puede entrar en una hoja ausente del BVH transparente")
+		"a glass entry cannot use a slot missing from the transparent BVH")
 
 	var placeholder := VoxelRenderSystem._placeholder_entry(1)
 	var fragment := _entry(Vector3i(9, 5, 3), true)
@@ -48,7 +48,7 @@ func _initialize() -> void:
 	_check(glass_entry.dimensions == fragment.dimensions \
 		and glass_entry.atlas_origin == fragment.atlas_origin \
 		and int(glass_entry.brick_table_base) == 123,
-		"activar la reserva copia todos los metadatos al BVH transparente")
+		"enabling the reservation copies all metadata to the transparent BVH")
 	renderer.free()
 	print("VOXEL_RENDERER_ENTRY_REUSE_SELFTEST_OK")
 	quit(1 if failures > 0 else 0)

@@ -1,6 +1,6 @@
 extends SceneTree
-## Que cuestan los cables de Lee: parados (que es como estan casi siempre) y con todos despiertos a
-## la vez, que es el peor caso imaginable y no ocurre nunca.
+## Cost of Lee's cables while stationary (their usual state) and with all of them awake
+## simultaneously, which is the worst imaginable case and never occurs.
 var MAP := VoxelProjectPaths.teardown_map_path()
 
 
@@ -18,38 +18,38 @@ func _run() -> void:
 	var import_ms := (Time.get_ticks_usec() - started) / 1000.0
 	var ropes := world.get_node_or_null("TeardownRopes") as VoxelRopes
 	if ropes == null:
-		print("sin cables")
+		print("no cables")
 		quit(1)
 		return
-	print("%d tramos, importados con el mapa en %.0f ms" % [ropes.span_count(), import_ms])
+	print("%d spans, imported with the map in %.0f ms" % [ropes.span_count(), import_ms])
 
-	# Parados: lo unico que corre es el `if` que comprueba que no hay nada despierto.
+	# Stationary: only the `if` checking for awake spans runs.
 	for _frame in 10:
 		await physics_frame
-	print("despiertos en reposo: %d" % ropes.awake_count())
+	print("awake at rest: %d" % ropes.awake_count())
 	var quiet := Time.get_ticks_usec()
 	for _step in 600:
 		ropes._physics_process(1.0 / 60.0)
-	print("  parados      %.4f ms por frame" % ((Time.get_ticks_usec() - quiet) / 1000.0 / 600.0))
+	print("  stationary  %.4f ms per frame" % ((Time.get_ticks_usec() - quiet) / 1000.0 / 600.0))
 
-	# Peor caso: los 79 tramos vivos, simulando y reconstruyendo la malla cada frame.
-	# Empujados de verdad: marcarlos despiertos sin moverlos los dormia a los 20 frames y la medida
-	# salia falsa (mas barata que el caso real de cuatro cables oscilando).
+	# Worst case: all 79 spans active, simulating and rebuilding the mesh every frame.
+	# Actually push them: marking them awake without movement put them to sleep after 20 frames, making
+	# the measurement false (cheaper than the real case of four oscillating cables).
 	ropes.force_all_awake_for_probe(Vector3(0.0, 0.0, 0.02))
 	var busy := Time.get_ticks_usec()
 	for _step in 120:
 		ropes._physics_process(1.0 / 60.0)
-	print("  todos vivos  %.4f ms por frame  (%d puntos, %d iteraciones)" % [
+	print("  all active   %.4f ms per frame  (%d points, %d iterations)" % [
 		(Time.get_ticks_usec() - busy) / 1000.0 / 120.0,
 		ropes.span_count() * (VoxelRopes.SEGMENTS + 1), VoxelRopes.ITERATIONS])
 
-	# Y lo que de verdad pasa: una explosion en medio del mapa.
+	# What actually happens: an explosion in the middle of the map.
 	ropes.sleep_all_for_probe()
 	var spawn := Vector3(-64.4, 3.0, -81.0)
 	ropes.on_impact(spawn, 1.0)
-	print("  una explosion despierta %d de %d tramos" % [ropes.awake_count(), ropes.span_count()])
+	print("  one explosion wakes %d of %d spans" % [ropes.awake_count(), ropes.span_count()])
 	var shot := Time.get_ticks_usec()
 	for _step in 60:
 		ropes._physics_process(1.0 / 60.0)
-	print("  tras el disparo %.4f ms por frame" % ((Time.get_ticks_usec() - shot) / 1000.0 / 60.0))
+	print("  after the shot %.4f ms per frame" % ((Time.get_ticks_usec() - shot) / 1000.0 / 60.0))
 	quit()

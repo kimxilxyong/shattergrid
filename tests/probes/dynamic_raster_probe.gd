@@ -1,10 +1,10 @@
 extends SceneTree
-## Cuanto cuesta refrescar el volumen de ocupacion segun el tamano de la region sucia.
+## Cost of refreshing the occupancy volume based on the size of the dirty region.
 ##
-## `_update_dynamic_shapes` fusiona en un solo AABB todo lo que se ha movido este frame, y luego
-## `_refresh_world_cell_region` re-rasteriza en esa caja TODAS las Shapes que la tocan, fijas
-## incluidas. Esta sonda mide ese coste sin GPU: replica el bucle de raster tal cual, sin la subida
-## de textura, que es exactamente lo que cuenta `last_region_raster_ms`.
+## `_update_dynamic_shapes` merges everything that moved this frame into one AABB, then
+## `_refresh_world_cell_region` rerasterizes ALL Shapes touching that box, including static ones.
+## This probe measures the cost without a GPU: it reproduces the raster loop without the texture
+## upload, which is exactly what `last_region_raster_ms` measures.
 var MAP := VoxelProjectPaths.teardown_map_path()
 const BASE_CELL_SIZE := 0.2
 
@@ -30,27 +30,27 @@ func _run() -> void:
 			mapa = shape.world_bounds() if mapa.size == Vector3.ZERO else mapa.merge(shape.world_bounds())
 	print("%d shapes, mapa %s\n" % [shapes.size(), mapa])
 
-	# Solo el barrido de bounds, sin rasterizar: el coste fijo de mirar las 2247 Shapes.
+	# Bounds scan only, without rasterization: the fixed cost of checking 2,247 Shapes.
 	var t := Time.get_ticks_usec()
 	var tocan := 0
 	for s in shapes:
 		if s.world_bounds().intersects(mapa):
 			tocan += 1
-	print("barrido de bounds de %d shapes: %.2f ms\n" % [
+	print("bounds scan of %d Shapes: %.2f ms\n" % [
 		shapes.size(), (Time.get_ticks_usec() - t) / 1000.0])
 
-	# Con rejilla: misma medida, consultando en vez de barrer.
+	# With the grid: same measurement, querying instead of scanning.
 	var grid := VoxelShapeGrid.new()
 	var construccion := Time.get_ticks_usec()
 	for s2 in shapes:
 		grid.insert(s2, s2.world_bounds())
-	print("rejilla construida con %d shapes en %.0f ms\n" % [
+	print("grid built with %d Shapes in %.0f ms\n" % [
 		grid.size(), (Time.get_ticks_usec() - construccion) / 1000.0])
 
 	# Centro en una zona construida: el spawn.
 	var centro := Vector3(-64.4, 3.0, -81.0)
 	print("%-6s %-8s %-9s %-7s %11s %11s" % [
-		"lado", "nivel", "celdas", "shapes", "barrido", "rejilla"])
+		"side", "level", "cells", "Shapes", "scan", "grid"])
 	for lado in [1.0, 4.0, 16.0, 64.0, 256.0]:
 		for level in 4:
 			var cell_size := BASE_CELL_SIZE * float(1 << level)

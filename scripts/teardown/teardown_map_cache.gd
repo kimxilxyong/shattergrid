@@ -1,16 +1,16 @@
 class_name TeardownMapCache
 extends RefCounted
-## Caché local del producto más caro del importador: las caras de colisión estática ya fusionadas.
+## Local cache of the importer's most expensive output: already-merged static collision faces.
 ##
-## No copia el mapa al proyecto ni crea una escena redistribuible. El archivo vive en `user://`,
-## pertenece a esta instalación y solo contiene datos derivados de la copia local del usuario.
+## This does not copy the map into the project or create a redistributable scene. The file lives in
+## `user://`, belongs to this installation, and contains only data derived from the user's local copy.
 
 const FORMAT_VERSION := 1
 const CACHE_DIRECTORY := "user://compiled_teardown_maps"
 const EXTENSION := ".tdcollision"
 
-## Cambiar cualquiera de estas implementaciones invalida automáticamente los artefactos anteriores.
-## `FORMAT_VERSION` cubre cambios puramente semánticos que no alteren estos archivos.
+## Changing any of these implementations automatically invalidates previous artifacts.
+## `FORMAT_VERSION` covers purely semantic changes that do not modify these files.
 const IMPLEMENTATION_FILES := [
 	"res://scripts/teardown/teardown_map_cache.gd",
 	"res://scripts/teardown/teardown_map_importer.gd",
@@ -129,14 +129,14 @@ static func save_payload(context: Dictionary, entries: Array, face_blocks: int) 
 static func invalidate(path: String) -> void:
 	if path.is_empty() or not FileAccess.file_exists(path):
 		return
-	# El objetivo es exclusivamente un archivo con extensión propia dentro de `user://`.
+	# The target must be a file with the dedicated extension inside `user://`.
 	if not path.begins_with(CACHE_DIRECTORY + "/") or not path.ends_with(EXTENSION):
 		return
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 
 
-## Un mapa, un artefacto. Cada firma nueva escribía 82 MB y no borraba la anterior: la instalación
-## acumulaba gigas de `.tdcollision` muertos que nadie iba a volver a leer.
+## One artifact per map. Each new signature wrote 82 MB without deleting the previous one, causing
+## the installation to accumulate gigabytes of obsolete `.tdcollision` files.
 static func _prune_older_artifacts(kept_path: String) -> void:
 	var kept := kept_path.get_file()
 	var prefix := kept.rsplit("-", true, 1)[0] + "-"
@@ -163,10 +163,10 @@ static func _file_stamp(path: String) -> String:
 	]
 
 
-## Los archivos de implementación se sellan por contenido, no por fecha: un `git checkout`, un
-## `touch` o un recompilado idéntico cambiaban el mtime y tiraban un artefacto de 82 MB que seguía
-## siendo válido. Son unos pocos MB entre scripts y dylib, así que hashearlos cuesta milisegundos.
-## Los `.vox` y el XML siguen con tamaño+mtime: son 292 MB y ahí el hash costaría más de lo que ahorra.
+## Implementation files are fingerprinted by content, not modification time: `git checkout`,
+## `touch`, or an identical rebuild changed the mtime and invalidated a still-valid 82 MB artifact.
+## Scripts and the dylib total only a few MB, so hashing them takes milliseconds. `.vox` and XML
+## files still use size+mtime: they total 292 MB, making hashing more expensive than the savings.
 static func _content_stamp(path: String) -> String:
 	var absolute := ProjectSettings.globalize_path(path) \
 		if path.begins_with("res://") or path.begins_with("user://") else path

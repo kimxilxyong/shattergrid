@@ -1,6 +1,6 @@
 extends SceneTree
-## Como se portan los cuerpos de verdad: cuantos quedan despiertos sin que nadie toque nada, si una
-## estructura cae al primer disparo o necesita un segundo, y que pasa con los cables al caer.
+## How real bodies behave: how many stay awake when untouched, whether a structure falls after one
+## shot or needs a second, and what happens to cables as it falls.
 var MAP := VoxelProjectPaths.teardown_map_path()
 
 var _world: VoxelWorld3D
@@ -39,23 +39,23 @@ func _run() -> void:
 	root.add_child(_world)
 	TeardownMapImporter.import_map(_world, MAP, Vector3.INF, 1.0e9, Vector3.ZERO, true)
 
-	print("\n=== reposo, sin tocar nada ===")
+	print("\n=== idle, no input ===")
 	for step in 5:
 		await _wait(30)
 		_awake_report("t=%.1fs" % (float(step + 1) * 0.5))
 
 	var ropes := _world.get_node_or_null("TeardownRopes") as VoxelRopes
 	print("\n=== cables ===")
-	print("  tramos=%d  extremos con cuerpo=%d de %d" % [
+	print("  spans=%d  endpoints with bodies=%d of %d" % [
 		ropes.span_count(), ropes.bound_ends(), ropes.span_count() * 2])
 	for index in ropes.span_count():
 		for side in ["a", "b"]:
 			if not ropes.has_body(index, side):
-				print("    extremo suelto %s del tramo %d en %v" % [
+				print("    loose endpoint %s on span %d at %v" % [
 					side, index, ropes.point(index, 0 if side == "a" else 8)])
 
-	# La torre, disparando EXACTAMENTE donde tiene voxeles, con el radio y la energia del cañon.
-	print("\n=== torre electrica: cañon sobre sus patas ===")
+	# The tower, firing EXACTLY where it has voxels, with the cannon's radius and energy.
+	print("\n=== power tower: cannon fire at its supports ===")
 	var mast: VoxelShape3D = null
 	var head: VoxelShape3D = null
 	for body in _world.get_children():
@@ -71,38 +71,38 @@ func _run() -> void:
 				head = shape
 	var head_y := head.world_bounds().get_center().y
 	var legs := _occupied_band(mast, 0.0, 1.2)
-	print("  patas encontradas en la banda baja: %d puntos" % legs.size())
+	print("  legs found in the lower band: %d points" % legs.size())
 	for shot in mini(24, legs.size()):
 		_world.damage_sphere(legs[shot], 1.1, 1.1)
 		await _wait(4)
 		if shot % 4 == 3 or _state_of(mast) == VoxelBody3D.State.DYNAMIC:
-			print("  disparo %d -> estado=%d  voxeles=%d" % [
+			print("  shot %d -> state=%d  voxels=%d" % [
 				shot + 1, _state_of(mast), mast.voxel_count()])
 		if _state_of(mast) == VoxelBody3D.State.DYNAMIC:
 			break
 	if _state_of(mast) != VoxelBody3D.State.DYNAMIC:
-		print("  sigue de pie con %d voxeles. Disparo LEJANO:" % mast.voxel_count())
+		print("  still standing with %d voxels. DISTANT shot:" % mast.voxel_count())
 		_world.damage_sphere(Vector3(-3.92, 3.0, 62.0), 1.1, 1.1)
 		await _wait(10)
-		print("  tras el disparo lejano -> estado=%d" % _state_of(mast))
+		print("  after distant shot -> state=%d" % _state_of(mast))
 	var mast_body := _world._body_of(mast)
 	for step in 6:
 		await _wait(15)
-		print("    t=+%.2fs  despierto=%s  cajas=%d  cabeza y=%.2f" % [
+		print("    t=+%.2fs  awake=%s  boxes=%d  head y=%.2f" % [
 			float(step + 1) * 0.25, mast_body.is_awake(), mast_body.compound_boxes,
 			head.world_bounds().get_center().y])
-	print("  la cabeza bajo %.2f m  (estado cabeza=%d)" % [
+	print("  head fell %.2f m  (head state=%d)" % [
 		head_y - head.world_bounds().get_center().y, _state_of(head)])
-	# Y ahora se le quita de verdad la base entera, como una bomba.
+	# Now remove the entire base for real, as with a bomb.
 	for step in 3:
 		_world.damage_sphere(Vector3(-3.92, 3.0 + float(step) * 0.8, 70.95), 3.2, 400.0)
 	await _wait(90)
-	print("  tras volarle la base entera, la cabeza bajo %.2f m" % [
+	print("  after destroying the entire base, head fell %.2f m" % [
 		head_y - head.world_bounds().get_center().y])
-	_awake_report("tras la torre")
+	_awake_report("after tower")
 
-	# Un poste de tuberia: mismo experimento.
-	print("\n=== poste de tuberia ===")
+	# A pipe post: the same experiment.
+	print("\n=== pipe post ===")
 	var post: VoxelShape3D = null
 	for body in _world.get_children():
 		if not body is VoxelBody3D:
@@ -113,18 +113,18 @@ func _run() -> void:
 					Vector3(4.22, 6.4, -27.0).clamp(bounds.position, bounds.end)) < 0.2:
 				post = shape
 	var post_y := post.world_bounds().get_center().y
-	print("  estado inicial=%d  voxeles=%d" % [_state_of(post), post.voxel_count()])
+	print("  initial state=%d  voxels=%d" % [_state_of(post), post.voxel_count()])
 	for shot in 6:
 		_world.damage_sphere(Vector3(4.22, 5.0 + float(shot) * 0.3, -27.0), 1.1, 1.1)
 		await _wait(6)
 	await _wait(60)
-	print("  tras 6 disparos bajo el poste: estado=%d  bajo %.2f m" % [
+	print("  after 6 shots at the post base: state=%d  fell %.2f m" % [
 		_state_of(post), post_y - post.world_bounds().get_center().y])
-	print("  extremos de cable con cuerpo muerto: %d" % _orphans(ropes))
+	print("  rope endpoints with dead bodies: %d" % _orphans(ropes))
 	quit(0)
 
 
-## Centros de mundo de voxeles vivos en una banda de altura sobre la base de la Shape.
+## World-space centers of live voxels within a height band above the Shape's base.
 func _occupied_band(shape: VoxelShape3D, low: float, high: float) -> Array[Vector3]:
 	var found: Array[Vector3] = []
 	var dimensions := shape.data.get_dimensions()

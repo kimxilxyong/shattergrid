@@ -1,18 +1,18 @@
 class_name TeardownPalette
 extends RefCounted
-## Índice de paleta -> material, tal y como lo hace Teardown.
+## Palette index -> material, matching Teardown.
 ##
-## Teardown no adivina el material por el color: reserva bandas fijas de 8 índices en la paleta y
-## el índice manda. Teardown-Converter reordena la paleta al exportar (`FIX_PALETTE_MAPPING`) para
-## que cada material caiga en su banda, con la fila 31 en los índices bajos:
+## Teardown does not infer material from color: it reserves fixed bands of 8 palette indices, and
+## the index determines the material. Teardown-Converter reorders the palette when exporting
+## (`FIX_PALETTE_MAPPING`) so each material falls into its band, with row 31 at the lowest indices:
 ##
-##     fila = 31 - (índice - 1) / 8
+##     row = 31 - (index - 1) / 8
 ##
-## Es una señal exacta, no una inferencia, así que para los `.vox` del mapa sustituye a la
-## heurística HSV de `VoxelAssetImporter._toughness_of`, que solo existe porque los `.vox` de
-## terceros traen paletas arbitrarias.
+## This is an exact signal, not an inference, so it replaces the HSV heuristic in
+## `VoxelAssetImporter._toughness_of` for map `.vox` files. That heuristic is needed only because
+## third-party `.vox` files use arbitrary palettes.
 
-## Las 32 filas en el orden en que las escribe el conversor (fila 0 abajo del todo en MagicaVoxel).
+## The 32 rows in the order written by the converter (row 0 is at the bottom in MagicaVoxel).
 const ROWS := [
 	"none", "reserved", "unphysical", "unphysical", "reserved", "reserved", "reserved", "reserved",
 	"ice", "hardmasonry", "hardmetal", "plastic", "plastic", "heavymetal", "heavymetal", "metal",
@@ -20,9 +20,9 @@ const ROWS := [
 	"wood", "rock", "rock", "dirt", "dirt", "foliage", "foliage", "glass",
 ]
 
-## `hardness` en la escala de `damage_sphere_material`: divide el radio del boquete, con 1.0 como
-## material blando de referencia. Las cuatro clases de `MakeHole` de Teardown (blando, medio, duro,
-## indestructible) salen de agrupar estas filas. `density` va en kg/m3.
+## `hardness` on the `damage_sphere_material` scale: it divides the hole radius, with 1.0 as the
+## reference for a soft material. Teardown's four `MakeHole` classes (soft, medium, hard,
+## indestructible) are derived by grouping these rows. `density` is in kg/m3.
 const MATERIALS := {
 	"glass": {"hardness": 0.5, "density": 2500.0, "opacity": 0.35, "roughness": 0.1},
 	"foliage": {"hardness": 0.6, "density": 300.0},
@@ -35,21 +35,21 @@ const MATERIALS := {
 	"metal": {"hardness": 2.4, "density": 7800.0, "metallic": 0.8, "roughness": 0.35},
 	"hardmasonry": {"hardness": 4.0, "density": 2600.0},
 	"hardmetal": {"hardness": 4.5, "density": 7900.0, "metallic": 0.9, "roughness": 0.25},
-	# Teardown deja roca y metal pesado fuera de las tres esferas de `MakeHole`: no se agujerean.
+	# Teardown excludes rock and heavy metal from all three `MakeHole` classes: they cannot be drilled.
 	"rock": {"hardness": 1000000.0, "density": 2700.0},
 	"heavymetal": {"hardness": 1000000.0, "density": 8000.0, "metallic": 0.9, "roughness": 0.3},
-	# Decorado sin física propia (vallas de fondo, letreros). Se trata como yeso para que ceda.
+	# Decoration without its own physics (background fences, signs). Treat as plaster so it gives way.
 	"unphysical": {"hardness": 1.0, "density": 1200.0},
 	"none": {"hardness": 1.0, "density": 1200.0},
 	"reserved": {"hardness": 1.0, "density": 1200.0},
 }
 
 
-## `IMAP` es la tabla de reindexado de MagicaVoxel, y en los `.vox` del conversor NO es la
-## identidad: los voxeles llevan indices compactados desde el 1 y el indice real de la banda esta en
-## `IMAP`. Sin traducirlo, el terreno de Lee (16 M de voxeles en el indice 1) entraba como `glass` de
-## dureza 0,5 en vez de `rock` indestructible — el suelo del mapa se abria de un click. Los ficheros
-## cuya paleta ya venia ordenada por bandas traen IMAP identidad, asi que esto no los cambia.
+## `IMAP` is MagicaVoxel's reindexing table. In converter `.vox` files it is NOT the identity:
+## voxels use compact indices starting at 1, and `IMAP` contains the actual band index. Without
+## applying it, Lee's terrain (16 million voxels at index 1) was treated as `glass` with hardness
+## 0.5 instead of indestructible `rock`, so one click opened the ground. Files whose palettes are
+## already ordered by band have an identity IMAP, so this does not change them.
 static func banded_index(index: int, imap: PackedByteArray) -> int:
 	if imap.size() < 255 or index < 1 or index > 255:
 		return index
@@ -63,9 +63,9 @@ static func material_name(index: int, imap := PackedByteArray()) -> String:
 	return ROWS[31 - (banded - 1) / 8]
 
 
-## La apariencia y el material fisico son dos ejes independientes en Teardown. El indice decide
-## dureza/densidad; `MATL` decide si esa misma muestra se ve mate, metalica, emisiva o como vidrio.
-## Es valido, por ejemplo, que el indice fisico 1 (glass) tenga apariencia `_metal` y sea opaco.
+## Appearance and physical material are independent in Teardown. The index determines hardness and
+## density; `MATL` determines whether that sample looks matte, metallic, emissive, or like glass.
+## For example, physical index 1 (`glass`) can have `_metal` appearance and be opaque.
 static func appearance(attributes: Dictionary, fallback_alpha := 1.0) -> Dictionary:
 	var kind: String = attributes.get("_type", "_diffuse")
 	var roughness := clampf(float(attributes.get("_rough", 1.0)), 0.0, 1.0)
@@ -77,9 +77,9 @@ static func appearance(attributes: Dictionary, fallback_alpha := 1.0) -> Diction
 	}
 	match kind:
 		"_glass":
-			# MagicaVoxel stores 100 % transparency as alpha=1. Teardown explicitly treats that
-			# value as opaque; any lower value enables una unica apariencia de vidrio, sin
-			# graduar la transparencia entre 0 y 99.
+			# MagicaVoxel stores 100% transparency as alpha=1. Teardown explicitly treats that value
+			# as opaque; any lower value enables one glass appearance, without grading transparency
+			# from 0 to 99.
 			var alpha := clampf(float(attributes.get("_alpha", fallback_alpha)), 0.0, 1.0)
 			result.opacity = 1.0 if alpha >= 0.999 else 0.35
 			result.roughness = 0.08
@@ -100,24 +100,24 @@ static func appearance(attributes: Dictionary, fallback_alpha := 1.0) -> Diction
 	return result
 
 
-## Materiales que el jugador atraviesa siempre. `unphysical` es la categoria del propio Teardown
-## para el decorado sin fisica: vallas de fondo, letreros, y esas imperfecciones que alguien puso de
-## adorno en el suelo y que nunca se penso que se pisaran. Darles malla no solo pesa — convierte un
-## adorno del suelo en un escalon. Se siguen dibujando y rompiendo igual; solo salen de la malla
-## que recibe Jolt.
+## Materials the player always passes through. `unphysical` is Teardown's category for decoration
+## without physics: background fences, signs, and details placed on the ground that were never
+## intended to be walked on. Giving them a mesh costs performance and turns ground decoration into
+## steps. They are still rendered and destroyed as before; they are simply excluded from the mesh
+## passed to Jolt.
 ##
-## `foliage` entra entero: en el original el jugador camina por el suelo y la hierba no le levanta
-## la camara. Se intento distinguir hierba de arbusto por la altura de la Shape y no vale — en Lee
-## los hierbajos vienen dentro de Shapes altas y seguian colisionando.
+## `foliage` is included in full: in the original, the player walks over the ground and grass does
+## not lift the camera. Distinguishing grass from shrubs by Shape height did not work—Lee's weeds
+## are part of tall Shapes and still caused collisions.
 ##
-## Limitación conocida: los arbustos grandes tampoco bloquean al jugador. Distinguirlos exige
-## medir la altura de cada columna de follaje, una consulta reservada para la ruta nativa.
+## Known limitation: large shrubs also do not block the player. Distinguishing them requires
+## measuring the height of each foliage column, a query reserved for the native path.
 const WALK_THROUGH := ["unphysical", "foliage"]
 
 
-## Una entrada por indice de paleta, 0 = atravesable. Va como metadato de la paleta porque solo vale
-## para las paletas convertidas de Teardown: en un `.vox` de terceros la banda del indice no
-## significa nada, y sin metadato `build_macro_faces` colisiona con todo, como hasta ahora.
+## One entry per palette index; 0 means pass-through. Stored as palette metadata because this
+## applies only to converted Teardown palettes: index bands have no meaning in third-party `.vox`
+## files, and without the metadata `build_macro_faces` collides with everything as before.
 static func collide_mask(walk_through: Array, imap := PackedByteArray()) -> PackedByteArray:
 	var mask := PackedByteArray()
 	mask.resize(256)
@@ -132,14 +132,14 @@ static func mask_for(shape: VoxelShape3D) -> PackedByteArray:
 	return shape.palette.get_meta("collide_mask", PackedByteArray())
 
 
-## Construye la `VoxelPalette` de un `.vox` del mapa: color/apariencia de RGBA+MATL y propiedades
-## fisicas de la banda de indice oficial de Teardown.
+## Build the `VoxelPalette` for a map `.vox`: RGBA+MATL color/appearance and physical properties
+## from Teardown's official index bands.
 static func build(colors: PackedColorArray, material_attributes: Dictionary,
 		imap := PackedByteArray()) -> VoxelPalette:
 	var palette := VoxelPalette.new()
 	palette.set_meta("collide_mask", collide_mask(WALK_THROUGH, imap))
-	# Se guarda para que las sondas puedan nombrar el material de un voxel sin volver a abrir el
-	# `.vox`: sin el IMAP, `material_name` de un indice crudo miente.
+	# Store this so probes can name a voxel's material without reopening the `.vox`: without IMAP,
+	# `material_name` returns the wrong name for a raw index.
 	palette.set_meta("imap", imap)
 	for index in range(1, 256):
 		var traits: Dictionary = MATERIALS[material_name(index, imap)]

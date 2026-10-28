@@ -15,7 +15,7 @@ func _init() -> void:
 	var opaque_metal: Dictionary = palette.get_material(1)
 	var visual_glass: Dictionary = palette.get_material(255)
 	var emissive_wood: Dictionary = palette.get_material(57)
-	# `IMAP` real de `palette103.vox` de Lee: el voxel con indice 1 es roca, no vidrio, y el 2 tierra.
+	# The real `IMAP` from Lee's `palette103.vox`: voxel index 1 is rock, not glass, and index 2 is dirt.
 	var imap := PackedByteArray()
 	imap.resize(255)
 	for i in 255:

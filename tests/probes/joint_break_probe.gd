@@ -1,5 +1,5 @@
 extends SceneTree
-## Que la rotura de joints funciona sobre los datos reales de Lee, no solo en el test sintetico.
+## Verify that joint breakage works on Lee's real data, not only in the synthetic test.
 var MAP := VoxelProjectPaths.teardown_map_path()
 
 
@@ -15,14 +15,14 @@ func _run() -> void:
 	TeardownMapImporter.import_map(world, MAP, Vector3.INF, 1.0e9, Vector3.ZERO, true)
 	var joints := world.get_node_or_null("TeardownJoints") as VoxelJoints
 	if joints == null:
-		print("sin nodo de joints")
+		print("no joint node")
 		quit(1)
 		return
-	print("joints registrados %d, vivos %d" % [joints.count(), joints.live_count()])
+	print("registered joints %d, live %d" % [joints.count(), joints.live_count()])
 	for _frame in 20:
 		await physics_frame
 
-	# Los tramos de tuberia estan por (4.2, 6.4, -19..-41). Se dispara sobre esa linea.
+	# Pipe spans are at (4.2, 6.4, -19..-41). Fire along that line.
 	var before := joints.live_count()
 	var awake_before := world.awake_bodies
 	for z in [-19.1, -23.1, -27.1, -31.0, -35.0]:
@@ -30,6 +30,6 @@ func _run() -> void:
 	for _frame in 20:
 		await physics_frame
 	world._update_metrics()
-	print("tras cinco disparos sobre la tuberia: vivos %d (rotos %d), despiertos %d -> %d" % [
+	print("after five shots at the pipe: live %d (broken %d), awake %d -> %d" % [
 		joints.live_count(), before - joints.live_count(), awake_before, world.awake_bodies])
 	quit(0 if joints.live_count() < before else 1)

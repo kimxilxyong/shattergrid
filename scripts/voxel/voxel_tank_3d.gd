@@ -1,39 +1,39 @@
 class_name VoxelTank3D
 extends Node
-## Tanque conducible de tres piezas: el casco lleva el tren de orugas, la torreta persigue la mira
-## en su eje vertical y el cañón cabecea sobre sus muñones.
+## Three-part drivable tank: the hull carries the tracks, the turret follows the sight on its
+## vertical axis, and the cannon pitches on its trunnions.
 ##
-## Corona y muñones son bisagras físicas para que torreta y cañón tengan colisión y masa reales,
-## pero ninguna es una unión estructural rompible: el tanque nunca se desarma. Acelerar, pivotar,
-## atravesar una pared o comerse una explosión dejan la torreta donde está.
+## The turret ring and trunnions are physical hinges so the turret and cannon have real collision
+## and mass, but neither is a breakable structural joint: the tank never comes apart. Accelerating,
+## pivoting, driving through a wall, or taking an explosion leaves the turret in place.
 
 const GROUP := "voxel_tanks"
 const HULL_PATH := "res://assets/models/tank/tanque_casco.vox"
 const TURRET_PATH := "res://assets/models/tank/tanque_torreta.vox"
 
-## Punto de giro medido desde la esquina mínima del volumen, no desde el origen del `.vox`: el
-## decoder recorta cada modelo a su contenido, así que el origen del archivo se pierde al importar.
-## Los imprime `tools/make_tank_vox.py` si cambia la geometría.
+## Pivot measured from the volume's minimum corner, not the `.vox` origin: the decoder crops each
+## model to its contents, so the file origin is lost on import. `tools/make_tank_vox.py` prints
+## these values if the geometry changes.
 const HULL_RING_OFFSET := Vector3(4.15, 1.85, 1.90)
 const TURRET_PIVOT_OFFSET := Vector3(3.35, 0.05, 1.60)
 
-## El arte voxel de 10 cm es macizo; estos factores dejan el conjunto cerca de 60 t.
+## The 10 cm voxel art is solid; these factors put the whole assembly near 60 tonnes.
 const HULL_FILL := 0.13
 const TURRET_FILL := 0.17
 
-## Distancia minima a la que converge la mira. La camara esta por encima del canon, asi que apuntar a
-## un muro a tres metros pedia una elevacion absurda y el canon se iba al cielo: es el defecto de
-## paralaje clasico de la vista arcade. Por debajo de este radio se ignora el impacto y se apunta a la
-## linea de vision, que es lo que el jugador cree estar viendo.
+## Minimum distance at which the sight converges. The camera is above the cannon, so aiming at a
+## wall three meters away demanded an absurd elevation and pointed the cannon at the sky: the
+## classic parallax flaw of an arcade view. Below this radius, ignore the hit and aim along the
+## line of sight, where the player expects to be aiming.
 const AIM_MIN_CONVERGENCE := 15.0
 const AIM_MAX_CONVERGENCE := 500.0
 
-## Constante de tiempo del suavizado del punto de mira. Sin ella, cruzar el borde de un muro salta de
-## 4 m a 500 m en un frame y la torreta pega un latigazo.
+## Smoothing time constant for the aim point. Without it, crossing a wall's edge jumps from 4 m to
+## 500 m in one frame and makes the turret whip around.
 const AIM_SMOOTH := 9.0
 
-## Control de orugas: A/D piden velocidad angular directamente. Limitar aceleración conserva peso,
-## pero no depende de que un par pequeño consiga vencer de casualidad la fricción de seis ruedas.
+## Track controls: A/D request angular velocity directly. Limiting acceleration preserves the sense
+## of weight without relying on a small torque accidentally overcoming the friction of six wheels.
 const TURN_MAX_YAW_SPEED := 1.05
 const TURN_ACCELERATION := 2.8
 const TURN_BRAKING := 4.2
@@ -41,43 +41,43 @@ const TRACK_FORWARD_SPEED := 10.5
 const TRACK_REVERSE_SPEED := 5.5
 const TRACK_ACCELERATION := 3.8
 const TRACK_BRAKING := 5.0
-## Los rodillos de rodaje ya están dibujados en el casco: siete discos de 9 celdas por banda, con
-## paso de 9 celdas. Se sacan a Shapes propias para que la suspensión pueda moverlos. Las celdas van
-## en el orden del decoder: largo, alto, lateral.
+## The road wheels are already drawn on the hull: seven 9-cell discs per track, spaced 9 cells
+## apart. They are detached into their own Shapes so the suspension can move them. Cells follow the
+## decoder's order: length, height, lateral.
 const ROAD_WHEEL_SIZE_CELLS := Vector3i(9, 9, 5)
 const ROAD_WHEEL_FIRST_CELL := Vector3i(10, 2, 1)
 const ROAD_WHEEL_PITCH_CELLS := 9
 const ROAD_WHEEL_COUNT := 7
-## Esquina lateral de cada banda. La celda de fuera es el faldón plano de la oruga, no el rodillo.
+## Lateral corner of each track. The outer cell is the flat track skirt, not the road wheel.
 const ROAD_WHEEL_LATERAL_CELLS := [1, 32]
-## Llanta y buje del rodillo. Las cajas del primero y del último rozan el anillo de la banda y el
-## piñón; filtrando por material sale el disco y la oruga se queda entera.
+## Road-wheel tire and hub. The first and last boxes overlap the track ring and sprocket; filtering
+## by material extracts the disc while leaving the track intact.
 const ROAD_WHEEL_MATERIALS := [124, 125]
 const ROAD_WHEEL_TRAVEL := "-0.08 0.42"
-## El rodillo dibujado no llega al suelo: quien apoya es la banda. El raycast necesita un radio mayor
-## que el disco para sostener el casco a su altura de marcha de siempre (0.154 m sobre el suelo).
+## The rendered road wheel does not reach the ground; the track supports the tank. The raycast needs
+## a radius larger than the disc to keep the hull at its usual ride height (0.154 m above ground).
 const ROAD_WHEEL_RADIUS := 0.804
-## Hundimiento del muelle con el tanque parado en llano. El eje físico se monta ese tanto por encima
-## del disco dibujado para que, ya asentado, el rodillo vuelva justo a donde lo pintó el arte. Es un
-## calibrado: si cambian masa, muelle o número de rodillos, se vuelve a medir con
+## Spring compression while the tank is stationary on level ground. The physical axle is mounted
+## this far above the rendered disc so the settled road wheel returns to its authored position.
+## This is a calibration: if mass, spring, or wheel count changes, remeasure it with
 ## `tests/selftest/tank_road_wheel_selftest.gd`.
 const ROAD_WHEEL_SAG := 0.364
 
-## Agarre lateral de las orugas. Una oruga no patina de costado: sin esto el casco conservaba toda
-## su velocidad transversal al girar y el tanque derrapaba como un coche sobre hielo. Es la misma
-## idea que el `sideways slip` de una rueda, pero acotada por una deceleración para que un impacto
-## lateral fuerte siga empujando el tanque en vez de quedar anulado en un tick.
+## Lateral track grip. A track should not slide sideways: without this, the hull kept all its
+## lateral velocity while turning and the tank drifted like a car on ice. This is the same idea as
+## a wheel's `sideways slip`, limited by a deceleration so a strong side impact still pushes the tank
+## instead of being canceled in one tick.
 const TRACK_LATERAL_GRIP := 26.0
-## El 122 es la cinta continua de las dos orugas, y solo ella: el faldón lateral y los detalles del
-## casco que compartían ese índice pasaron al 123, mismo color y mismas propiedades, para que el
-## patrón no se derramase fuera del bucle.
+## Material 122 is used only for the continuous belt of both tracks: the side skirt and hull details
+## that shared this index were moved to 123 with the same color and properties, so the pattern does
+## not spill outside the loop.
 const TRACK_MATERIAL := 122
-## Celdas del casco recortado, en el orden que usa el decoder: largo, alto, lateral. El bucle de la
-## banda ocupa las 13 primeras alturas; por encima ya es casco.
+## Cells in the cropped hull, in decoder order: length, height, lateral. The track loop occupies the
+## first 13 height cells; above that is the hull.
 const TRACK_CELL_BOUNDS := AABB(Vector3(0, 0, 0), Vector3(78, 13, 38))
 const TRACK_LINK_PITCH_CELLS := 4.0
-## Los extremos del anillo no son curvas sino chaflanes a 45° de 4 celdas: |dx|+|dy| es constante en
-## toda la diagonal. Con eso el shader distingue la capa exterior del anillo de la interior.
+## The ends of the ring are not curves but 4-cell 45-degree chamfers: |dx|+|dy| is constant along
+## each diagonal. This lets the shader distinguish the outer ring layer from the inner one.
 const TRACK_PROFILE_CHAMFER_CELLS := 4.0
 const TRACK_CELLS_PER_METRE := 10.0
 
@@ -85,38 +85,37 @@ const YAW_SPEED := 0.72
 const YAW_GAIN := 3.4
 const YAW_MAX_IMPULSE := 90000.0
 const MOTOR_SIGN := -1.0
-## Tope de la compensacion de guiñada del casco. No es velocidad de punteria -eso es `YAW_SPEED`-
-## sino lo que la corona puede pedir solo para quedarse quieta en el mundo mientras el casco gira,
-## asi que tiene que superar a `TURN_MAX_YAW_SPEED`. Se acota para que un bache que sacuda el casco
-## no dispare la torreta de golpe.
+## Maximum hull-yaw compensation. This is not aiming speed (that is `YAW_SPEED`), but how much the
+## turret ring may request just to stay still in world space while the hull turns, so it must exceed
+## `TURN_MAX_YAW_SPEED`. It is capped so a bump that shakes the hull does not jerk the turret.
 const YAW_COMPENSATION_LIMIT := 1.6
 
-## Corte del cañón dentro del modelo de torreta: de x=61 en adelante solo queda el ánima de 6x6
-## voxeles y el bocacho. Todo lo anterior (mantelete, cesta, techo) se queda en la torreta.
+## Split point for the cannon inside the turret model: from x=61 onward, only the 6x6 voxel bore
+## and muzzle remain. Everything before it (mantlet, basket, roof) stays with the turret.
 const BARREL_SPLIT_X := 61
-## Muñones, medidos desde la esquina mínima del volumen de la torreta igual que los otros pivotes:
-## dentro del mantelete y en el eje del ánima.
+## Trunnions, measured from the turret volume's minimum corner like the other pivots: inside the
+## mantlet and aligned with the bore.
 const TURRET_TRUNNION_OFFSET := Vector3(5.6, 0.50, 1.60)
 const BARREL_FILL := 0.20
-## Recorrido de un carro de combate real: mucha elevación, poca depresión.
+## Elevation range of a real tank: high elevation, limited depression.
 const BARREL_MIN_PITCH_DEG := -9.0
 const BARREL_MAX_PITCH_DEG := 20.0
 const PITCH_SPEED := 0.55
 const PITCH_GAIN := 3.2
 const PITCH_MAX_IMPULSE := 90000.0
-## El ángulo interno de la bisagra crece al revés que la elevación medida, igual que le pasa a la
-## corona con `MOTOR_SIGN`. Afecta al motor y a los topes por igual, así que ambos se niegan aquí.
+## The hinge's internal angle increases opposite to measured elevation, just like the turret ring
+## with `MOTOR_SIGN`. This affects the motor and limits equally, so both are negated here.
 const PITCH_MOTOR_SIGN := -1.0
 
-## Cadencia. Un carro real tarda más en recargar, pero de momento el disparo solo saca el fogonazo y
-## esperar seis segundos para volver a verlo no ayuda a nadie.
+## Fire rate. A real tank takes longer to reload, but for now firing only produces a muzzle flash,
+## and waiting six seconds to see it again would not help anyone.
 const FIRE_COOLDOWN := 1.2
-## Culatazo. El impulso real de un cañón de 120 mm sobre 60 toneladas mueve el carro veinte
-## centímetros por segundo: correcto y absolutamente invisible. Esto está exagerado a propósito, y se
-## aplica a la altura del bocacho para que el carro se encabrite sobre la suspensión en vez de
-## limitarse a deslizarse hacia atrás, que es lo que se lee como potencia.
+## Recoil. The real impulse of a 120 mm cannon on a 60-ton tank moves it twenty centimeters per
+## second: accurate, but completely invisible. This is deliberately exaggerated and applied at the
+## muzzle height so the tank rears on its suspension instead of merely sliding backward, which
+## reads as power.
 const RECOIL_IMPULSE := 45000.0
-## El propio cañón retrocede aparte: el motor de los muñones lo devuelve solo a su elevación.
+## The cannon recoils separately; the trunnion motor returns it to its original elevation.
 const BARREL_RECOIL_IMPULSE := 9000.0
 
 var target_yaw := 0.0
@@ -134,14 +133,14 @@ var _pitch_record := {}
 var _joints: VoxelJoints
 var _gunner: Node3D
 var _track_surface: VoxelSurfaceAnimation
-## Avance (m/s) y giro (rad/s) que ha pedido el conductor, con las mismas rampas que la tracción.
-## La banda se anima con esto y no con la velocidad del casco.
+## Forward speed (m/s) and turn rate (rad/s) requested by the driver, using the same ramps as the
+## drivetrain. Track animation uses these values, not the hull speed.
 var _track_command := Vector2.ZERO
 var _fire_cooldown := 0.0
 
 
-## Crea el tanque y toda su infraestructura dentro de `world`. La escena principal solo decide dónde
-## aparece; cámara, puntería, tren de orugas, corona y reacción a explosiones pertenecen al tanque.
+## Creates the tank and all its infrastructure inside `world`. The main scene only decides where it
+## appears; the camera, aiming, tracks, turret ring, and explosion response belong to the tank.
 static func spawn(
 	world: VoxelWorld3D, origin: Vector3, gunner: Node3D = null
 ) -> VoxelTank3D:
@@ -162,9 +161,9 @@ static func spawn(
 	tank.turret.transform.origin += pivot - _shape_point(tank.turret, TURRET_PIVOT_OFFSET)
 	tank.turret.force_update_transform()
 
-	# El .vox trae torreta y cañón en una sola pieza; el cañón se separa aquí para que pueda cabecear
-	# en sus muñones. Se mide el punto de giro antes de cortar: al detachar, la Shape de la torreta
-	# deja de contener los voxeles del ánima y sus límites ya no sirven de referencia.
+	# The .vox contains the turret and cannon as one piece; split the cannon here so it can pitch on
+	# its trunnions. Measure the pivot before splitting: afterward, the turret Shape no longer
+	# contains the bore voxels, so its bounds are no longer a valid reference.
 	var trunnion := _shape_point(tank.turret, TURRET_TRUNNION_OFFSET)
 	tank.barrel = _split_barrel(world, tank.turret)
 
@@ -178,17 +177,17 @@ static func spawn(
 		_tank_vehicle_descriptor(tank.hull, road_wheels)
 	)
 	if tank.vehicle != null:
-		tank.vehicle.display_name = "tanque"
+		tank.vehicle.display_name = "tank"
 		tank.vehicle.set_joint_registry(tank._joints)
-		# Las dos orugas apoyan muchas cajas contra el suelo. Ocho contactos se consumían enteros en
-		# esa base plana y Jolt no alcanzaba a informar el morro contra un muro.
+		# Both tracks press many boxes against the ground. Eight contacts were entirely consumed by
+		# that flat base, leaving Jolt unable to report the nose hitting a wall.
 		tank.vehicle.max_contacts_reported = 32
 		tank.turret.vehicle_impact_owner = tank.hull
 		if tank.barrel != null:
 			tank.barrel.vehicle_impact_owner = tank.hull
-		# Las orugas forman parte del arte/collider voxel y rozan el suelo además de las ruedas de
-		# suspensión invisibles. Un material de casco deslizante evita que ese contacto doble clave el
-		# tanque; el agarre longitudinal sigue viniendo de las seis ruedas motrices.
+		# The tracks are part of the voxel art/collider and touch the ground in addition to the
+		# invisible suspension wheels. A slippery hull material prevents this double contact from
+		# jamming the tank; longitudinal grip still comes from the six drive wheels.
 		var skid_material := PhysicsMaterial.new()
 		skid_material.friction = 0.12
 		skid_material.bounce = 0.0
@@ -197,7 +196,7 @@ static func spawn(
 	var hinge := HingeJoint3D.new()
 	hinge.name = "TorretaHinge"
 	world.add_child(hinge)
-	# El eje de una bisagra de Godot es su +Z local; la torreta gira sobre el +Y del mundo.
+	# A Godot hinge uses its local +Z axis; the turret rotates around world +Y.
 	var frame := Transform3D(Basis(Vector3.RIGHT, -PI * 0.5), pivot)
 	hinge.global_transform = frame
 	hinge.node_a = hinge.get_path_to(tank.hull.get_physics_body())
@@ -213,7 +212,7 @@ static func spawn(
 		"owner_body": tank.hull,
 		"other_body": tank.turret,
 		"broken": false,
-		# La corona no se rompe nunca: ni por separación, ni por daño de material, ni por explosión.
+		# The turret ring never breaks: not from separation, material damage, or explosions.
 		"breakable": false,
 	}
 	tank._joints.add_records([tank._joint_record] as Array[Dictionary])
@@ -221,14 +220,14 @@ static func spawn(
 
 	world.add_child(tank)
 	tank.set_process(gunner != null)
-	# La puntería necesita `_process` solo con jugador; las orugas siempre necesitan su reloj físico,
-	# incluso si el tanque nació vacío y se ocupa varios segundos después.
+	# Aiming needs `_process` only when there is a player; the tracks always need their physics clock,
+	# even if the tank starts empty and is occupied several seconds later.
 	tank.set_physics_process(true)
 	return tank
 
 
-## Separa el ánima del resto de la torreta y le da su propio Body. `detach_component` ya devuelve la
-## Shape colocada en coordenadas de mundo, así que el Body nace con transformada identidad.
+## Separates the bore from the rest of the turret and gives it its own Body. `detach_component`
+## already returns the Shape in world coordinates, so the Body starts with an identity transform.
 static func _split_barrel(world: VoxelWorld3D, turret: VoxelBody3D) -> VoxelBody3D:
 	var shape := turret.get_shapes()[0]
 	var barrel_shape := shape.detach_component(
@@ -237,18 +236,18 @@ static func _split_barrel(world: VoxelWorld3D, turret: VoxelBody3D) -> VoxelBody
 		)
 	)
 	if barrel_shape == null:
-		push_warning("VoxelTank3D: la torreta no tiene cañón que separar")
+		push_warning("VoxelTank3D: turret has no barrel to detach")
 		return null
 	var body := VoxelBody3D.new()
-	body.name = "TanqueCanon"
+	body.name = "TankCannon"
 	world.add_child(body)
 	body.add_voxel_shape(barrel_shape)
 	world.register_body(body)
 	return body
 
 
-## Monta el cañón sobre los muñones. Es una bisagra con tope: el motor persigue la mira dentro del
-## recorrido y los límites impiden que la gravedad lo deje colgando.
+## Mounts the cannon on the trunnions. It is a limited hinge: the motor follows the sight within the
+## allowed range, and the limits stop gravity from leaving it hanging down.
 func _mount_barrel(world: VoxelWorld3D, trunnion: Vector3) -> void:
 	if barrel == null or not is_instance_valid(barrel):
 		return
@@ -256,8 +255,8 @@ func _mount_barrel(world: VoxelWorld3D, trunnion: Vector3) -> void:
 	var barrel_physics := barrel.get_physics_body()
 	if turret_physics == null or barrel_physics == null:
 		return
-	# Cañón y mantelete quedan pegados tras el corte. Sin excepción, Jolt resuelve ese contacto cara
-	# a cara contra la propia bisagra y el cañón vibra.
+	# The cannon and mantlet remain touching after the split. Without this exception, Jolt resolves
+	# their face-to-face contact against the hinge itself and the cannon vibrates.
 	barrel_physics.add_collision_exception_with(turret_physics)
 	var hull_physics := hull.get_physics_body()
 	if hull_physics != null:
@@ -265,8 +264,8 @@ func _mount_barrel(world: VoxelWorld3D, trunnion: Vector3) -> void:
 
 	var hinge := HingeJoint3D.new()
 	hinge.name = "CanonHinge"
-	# El eje de una bisagra de Godot es su +Z local, y el cabeceo ocurre sobre el eje lateral del
-	# modelo, que es justo el +Z de la torreta: aquí el marco entra sin rotar.
+	# A Godot hinge uses its local +Z axis, and pitch occurs around the model's lateral axis, which is
+	# exactly the turret's +Z: the frame needs no rotation here.
 	var frame := Transform3D(Basis.IDENTITY, trunnion)
 	world.add_child(hinge)
 	hinge.global_transform = frame
@@ -319,8 +318,8 @@ func yaw() -> float:
 	return wrapf(_plane_yaw(b.global_basis.x) - _plane_yaw(a.global_basis.x), -PI, PI)
 
 
-## Guiñada del casco en rad/s. `_plane_yaw` mide sobre el plano XZ, asi que su derivada es justo la
-## componente vertical de la velocidad angular del casco.
+## Hull yaw in rad/s. `_plane_yaw` measures on the XZ plane, so its derivative is exactly the
+## vertical component of the hull's angular velocity.
 func _hull_yaw_rate() -> float:
 	if hull == null or not is_instance_valid(hull):
 		return 0.0
@@ -335,7 +334,7 @@ func is_turret_attached() -> bool:
 		and _joint != null and is_instance_valid(_joint)
 
 
-## Distancia entre los dos anclajes físicos de la corona, útil para verificar el tanque bajo carga.
+## Distance between the turret ring's two physical anchors, useful for checking the tank under load.
 func turret_anchor_separation() -> float:
 	if _joint_record.is_empty() or not is_instance_valid(hull) or not is_instance_valid(turret):
 		return INF
@@ -354,9 +353,9 @@ static func _plane_yaw(direction: Vector3) -> float:
 	return atan2(-direction.z, direction.x)
 
 
-## Saca los rodillos del arte del casco a Shapes propias del mismo Body. Siguen siendo geometría del
-## casco para render, masa y destrucción; lo único que gana cada disco es un transform propio que
-## `_sync_wheel_visuals` puede mover. Se devuelven en el orden en que se declaran las ruedas.
+## Detaches the road wheels from the hull art into their own Shapes on the same Body. They remain
+## hull geometry for rendering, mass, and destruction; each disc only gains its own transform, which
+## `_sync_wheel_visuals` can move. They are returned in wheel declaration order.
 static func _detach_road_wheels(hull: VoxelBody3D) -> Array:
 	var shape := hull.get_shapes()[0]
 	var discs: Array = []
@@ -376,20 +375,20 @@ static func _detach_road_wheels(hull: VoxelBody3D) -> Array:
 					indices.append(cell_index)
 			var disc := shape.detach_component(indices)
 			if disc == null:
-				push_warning("VoxelTank3D: falta el rodillo %d del casco" % discs.size())
+				push_warning("VoxelTank3D: missing hull road wheel %d" % discs.size())
 				continue
-			# El disco se monta hundido: `_create_wheels` clava el eje en su centro y el nodo de la
-			# rueda cuelga lo que mida el muelle, así que subirlo aquí lo devuelve a su sitio en
-			# cuanto el tanque se asienta.
+			# The disc is mounted recessed: `_create_wheels` places the axle at its center and the
+			# wheel node hangs by the spring's length, so raising it here returns it to its authored
+			# position once the tank settles.
 			disc.transform.origin += Vector3.UP * ROAD_WHEEL_SAG
 			hull.add_voxel_shape(disc, true, false)
 			discs.append(disc)
 	return discs
 
 
-## Cada rodillo del arte es la rueda: `VehicleWheel3D` lo coloca en el centro de su Shape y
-## `_sync_wheel_visuals` lo devuelve pegado a ella, así que rueda y acompaña a la suspensión sin
-## código propio.
+## Each rendered road wheel is the wheel: `VehicleWheel3D` places it at the center of its Shape and
+## `_sync_wheel_visuals` keeps it attached, so it rotates and follows the suspension without custom
+## code.
 static func _tank_vehicle_descriptor(body: VoxelBody3D, road_wheels: Array) -> Dictionary:
 	var bounds := body.get_shapes()[0].world_bounds()
 	var wheels: Array = []
@@ -407,21 +406,21 @@ static func _tank_vehicle_descriptor(body: VoxelBody3D, road_wheels: Array) -> D
 			"topspeed": 45.0,
 			"acceleration": 7.2,
 			"strength": 12.0,
-			# El casco mide 3,8 m de ancho: el perfil de coche (hasta 2,9 m de diámetro) deja
-			# dos jambas invisibles agarrando las orugas aunque el centro del muro desaparezca.
+			# The hull is 3.8 m wide: the car profile (up to 2.9 m in diameter) leaves two invisible
+			# wall posts gripping the tracks even after the wall's center is gone.
 			"impact_radius": 2.35,
 			"spring": 2.2,
 			"damping": 2.0,
 			"friction": 2.2,
 			"antiroll": 0.9,
-			# Perfil arcade específico: suficientemente cerca para sentir el peso, con FOV menos
-			# deformado y zoom amplio. Los coches authored conservan el perfil automático.
+			# Custom arcade profile: close enough to feel the weight, with less FOV distortion and a
+			# wide zoom range. Authored cars retain the automatic profile.
 			"camera_distance": 8.4,
 			"camera_height": 1.55,
 			"camera_max_distance": 14.0,
 			"camera_fov": 78.0,
 		},
-		# El morro del modelo mira a +X y `VehicleBody3D` avanza hacia el +Z de este marco.
+		# The model's nose points along +X, while `VehicleBody3D` moves along this frame's +Z.
 		"physics_transform": Transform3D(
 			Basis(Quaternion(Vector3.UP, PI * 0.5)), bounds.get_center()
 		),
@@ -441,8 +440,8 @@ func _process(delta: float) -> void:
 		return
 	if vehicle == null or not is_instance_valid(vehicle) or not vehicle.has_driver():
 		return
-	# El disparo se lee aquí y no en `Player`: dentro de un vehículo el jugador ignora "fire" a
-	# propósito, y quien sabe dónde está el bocacho es el tanque.
+	# Read firing here, not in `Player`: the player intentionally ignores "fire" inside a vehicle,
+	# and the tank knows where its muzzle is.
 	_fire_cooldown = maxf(0.0, _fire_cooldown - delta)
 	if Input.is_action_just_pressed("fire"):
 		fire()
@@ -460,14 +459,13 @@ func _physics_process(delta: float) -> void:
 	if not is_turret_attached() or not is_instance_valid(hull) or not is_instance_valid(turret):
 		return
 	var error := wrapf(target_yaw - yaw(), -PI, PI)
-	# El motor de la corona manda velocidad RELATIVA al casco, y `target_yaw` tambien es relativo:
-	# con la mira fija en el mundo, girar el casco a omega hace que el objetivo se mueva a -omega.
-	# Un proporcional puro solo puede seguir eso arrastrando un error permanente de omega/YAW_GAIN
-	# -a 1 rad/s son 17 grados- y por eso la torreta se veia girar con el cuerpo. Se le suma la
-	# guiñada del casco con el signo contrario, que la cancela exactamente, y el proporcional se
-	# queda solo con el error de punteria. Los dos terminos se acotan por separado: el de punteria
-	# a la velocidad de la corona, y el de compensacion a un tope mayor, porque si no el casco gira
-	# mas rapido (1,05 rad/s) de lo que la torreta puede compensar (0,72).
+	# The turret-ring motor commands speed RELATIVE to the hull, and `target_yaw` is relative too:
+	# with the sight fixed in world space, turning the hull at omega makes the target move at -omega.
+	# A purely proportional controller can only follow this with a permanent error of omega/YAW_GAIN
+	# (17 degrees at 1 rad/s), making the turret appear to rotate with the hull. Add the hull yaw with
+	# the opposite sign to cancel it exactly, leaving the proportional term to handle aiming error.
+	# Clamp the terms separately: aim speed to the turret-ring speed, and compensation to a higher
+	# limit, since the hull can turn faster (1.05 rad/s) than the turret can compensate (0.72).
 	var command := clampf(error * YAW_GAIN, -YAW_SPEED, YAW_SPEED) - _hull_yaw_rate()
 	_joint.set_param(HingeJoint3D.PARAM_MOTOR_TARGET_VELOCITY, MOTOR_SIGN * command)
 	if absf(error) > 0.01 or absf(command) > 0.01:
@@ -476,12 +474,12 @@ func _physics_process(delta: float) -> void:
 	_aim_barrel()
 
 
-## Munición cargada. Una sola ficha por ahora; el día que haya HE o HEAT esto es lo que cambia
-## el selector del artillero, no el código del disparo.
+## Loaded ammunition. There is only one type for now; if HE or HEAT is added, this will change the
+## gunner's selector, not the firing code.
 const AMMO_KIND := "ap"
 
 
-## Dispara: fogonazo, culatazo y proyectil. Devuelve `false` si el cañón sigue recargando.
+## Fires a muzzle flash, recoil, and a projectile. Returns `false` while the cannon is reloading.
 func fire() -> bool:
 	if _fire_cooldown > 0.0 or barrel == null or not is_instance_valid(barrel):
 		return false
@@ -490,8 +488,7 @@ func fire() -> bool:
 		return false
 	var muzzle := muzzle_transform()
 	var forward := -muzzle.basis.z
-	# El suelo: el fondo del casco está apoyado en él, así que no hace falta un raycast para saber a
-	# qué altura levantar el polvo.
+	# The hull bottom rests on the ground, so no raycast is needed to determine how high to raise dust.
 	world.emit_muzzle_blast(
 		muzzle.origin, forward, 1.0, hull.get_shapes()[0].world_bounds().position.y
 	)
@@ -501,8 +498,8 @@ func fire() -> bool:
 	return true
 
 
-## Todo lo que es el propio carro. El bocacho está a medio metro del cañón, dentro de la envolvente
-## de la torreta: sin esta lista el primer rayo del proyectil impacta en el que dispara.
+## Everything belonging to the tank itself. The muzzle is half a meter ahead of the cannon, inside
+## the turret's bounds: without this list, the projectile's first ray hits its shooter.
 func _own_collision_rids() -> Array[RID]:
 	var rids: Array[RID] = []
 	for part: VoxelBody3D in [hull, turret, barrel]:
@@ -511,8 +508,8 @@ func _own_collision_rids() -> Array[RID]:
 	return rids
 
 
-## Velocidad del arma, que el proyectil hereda. Disparar en marcha desvía el tiro tanto como en la
-## realidad, y es gratis: ya la lleva el casco.
+## Weapon velocity, inherited by the projectile. Firing while moving deflects the shot as it would
+## in reality, at no extra cost: the hull already provides the velocity.
 func _hull_velocity() -> Vector3:
 	var hull_physics := hull.get_physics_body() as RigidBody3D if is_instance_valid(hull) else null
 	return hull_physics.linear_velocity if hull_physics != null else Vector3.ZERO
@@ -533,27 +530,27 @@ func _apply_recoil(forward: Vector3, muzzle_origin: Vector3) -> void:
 		)
 
 
-## Bocacho del cañón, mirando por el ánima según el convenio de Godot (`-basis.z` hacia adelante).
+## Cannon muzzle, oriented along the bore using Godot's convention (`-basis.z` points forward).
 func muzzle_transform() -> Transform3D:
 	if barrel == null or not is_instance_valid(barrel):
 		return Transform3D.IDENTITY
 	var shape := barrel.get_shapes()[0]
 	var bounds := shape.local_bounds()
 	var center := shape.global_transform * bounds.get_center()
-	# El ánima se cortó por el eje x del modelo, pero el signo depende de cómo quedase orientada la
-	# torreta: el bocacho es sin más el extremo que se aleja de ella.
+	# The bore was split along the model's x axis, but the sign depends on the turret's orientation:
+	# the muzzle is simply the end farther from the turret.
 	var half := shape.global_basis.x * (bounds.size.x * 0.5)
 	if is_instance_valid(turret) and (center - turret.get_shapes()[0].world_bounds().get_center()) \
 			.dot(half) < 0.0:
 		half = -half
 	var forward := half.normalized()
-	# Medio metro por delante del bocacho: nacido justo en la boca, el primer frame de la llamarada
-	# se queda medio metido dentro del propio cañón.
+	# Half a meter in front of the muzzle: if spawned right at the opening, the first muzzle-flash
+	# frame would remain half inside the cannon.
 	return Transform3D(Basis.looking_at(forward, Vector3.UP), center + half + forward * 0.5)
 
 
-## Sigue `target_pitch` con el motor de los muñones. El cañón vive fuera del casco, así que hay que
-## despertarlo aparte para que el presupuesto de física no lo deje dormido a media elevación.
+## Follow `target_pitch` with the trunnion motor. The cannon is separate from the hull, so wake it
+## separately to prevent the physics budget from leaving it asleep halfway through elevation.
 func _aim_barrel() -> void:
 	if _pitch_joint == null or not is_instance_valid(_pitch_joint) \
 			or barrel == null or not is_instance_valid(barrel):
@@ -568,7 +565,7 @@ func _aim_barrel() -> void:
 		turret.wake_for_interaction()
 
 
-## Elevación actual del cañón respecto a la torreta, en radianes y positiva hacia arriba.
+## Current cannon elevation relative to the turret, in radians and positive upward.
 func barrel_pitch() -> float:
 	if turret == null or barrel == null or not is_instance_valid(turret) \
 			or not is_instance_valid(barrel):
@@ -580,12 +577,13 @@ func barrel_pitch() -> float:
 	return _pitch_in_frame(barrel_physics.global_basis.x, turret_physics.global_basis)
 
 
-## Elevación que hay que pedirle a los muñones para apuntar a `aim_point`, ya recortada al recorrido
-## real del carro. Se mide desde el propio cañón: con un objetivo cercano, medirla desde el casco
-## dejaba el disparo un par de grados alto.
-## La línea de tiro sale del centro de masas de la torreta, no del origen del Body del cañón: ese
-## Body nace con transformada identidad (`detach_component` deja los voxeles en mundo) y su origen
-## queda bajo el suelo, con lo que apuntar al suelo de al lado pedía elevación en vez de depresión.
+## Trunnion elevation needed to aim at `aim_point`, clamped to the tank's actual range. Measure it
+## from the cannon itself: for a nearby target, measuring from the hull made the shot a few degrees
+## too high.
+## The firing line starts at the turret's center of mass, not the cannon Body's origin: that Body
+## starts with an identity transform (`detach_component` leaves the voxels in world space), placing
+## its origin below ground. Aiming at nearby ground would therefore request elevation instead of
+## depression.
 func _aim_pitch(aim_point: Vector3) -> float:
 	if turret == null or not is_instance_valid(turret):
 		return 0.0
@@ -603,14 +601,14 @@ static func _pitch_in_frame(direction: Vector3, turret_basis: Basis) -> float:
 	return atan2(local.y, Vector2(local.x, local.z).length())
 
 
-## Diferencial de orugas: W/S son tracción longitudinal; A/D piden yaw aun desde parado.
+## Track differential: W/S provide longitudinal drive; A/D request yaw even from a standstill.
 func _drive_tracks(delta: float) -> void:
 	if vehicle == null or not is_instance_valid(vehicle) or not vehicle.has_active_controls():
 		_command_tracks(delta, 0.0, 0.0, TRACK_BRAKING, TURN_BRAKING)
 		return
-	# VehicleWheel3D aporta suspensión y contacto, pero una oruga no transmite fuerza como una rueda
-	# libre. Aplicar una aceleración longitudinal acotada al casco da salida fiable desde parado y
-	# conserva masa, inercia y respuesta a impactos del rigid body (no teletransporta el tanque).
+	# VehicleWheel3D provides suspension and contact, but a track does not transmit force like a free
+	# wheel. Applying a capped longitudinal acceleration to the hull provides reliable starts while
+	# preserving the rigid body's mass, inertia, and impact response (the tank is not teleported).
 	var throttle := vehicle.control_throttle_input()
 	var forward := vehicle.forward_direction()
 	var longitudinal_speed := vehicle.linear_velocity.dot(forward)
@@ -622,8 +620,8 @@ func _drive_tracks(delta: float) -> void:
 		longitudinal_speed, target_speed, drive_acceleration * delta
 	)
 	vehicle.linear_velocity += forward * (next_speed - longitudinal_speed)
-	# Agarre de oruga: la componente transversal se disipa a un ritmo acotado en lugar de conservarse.
-	# Sin esto el tanque salía de cada giro deslizándose de lado con la trayectoria anterior intacta.
+	# Track grip: dissipate lateral velocity at a capped rate instead of preserving it. Without this,
+	# the tank would slide sideways out of every turn with its previous trajectory unchanged.
 	var right := vehicle.global_basis.x.normalized()
 	var lateral := vehicle.linear_velocity.dot(right)
 	vehicle.linear_velocity += right * (
@@ -652,10 +650,10 @@ func _configure_track_surface() -> void:
 		shape.surface_animation = _track_surface
 
 
-## La banda sigue la orden del conductor, no el movimiento del casco. Integrar la velocidad real
-## hacía correr las orugas cada vez que una explosión lanzaba el tanque o lo empujaba un muro, con
-## el motor parado: el efecto se leía como un error, no como tracción. Las rampas son las mismas que
-## usa `_drive_tracks`, así que soltar el mando frena la cinta al mismo ritmo que frena el tanque.
+## The tracks follow the driver's command, not the hull's motion. Integrating actual velocity made
+## them run whenever an explosion launched the tank or a wall pushed it, even with the engine off:
+## it looked like a bug, not traction. Use the same ramps as `_drive_tracks`, so releasing the
+## controls slows the tracks at the same rate as the tank.
 func _command_tracks(
 	delta: float, target_speed: float, target_yaw: float,
 	drive_acceleration: float, yaw_acceleration: float
@@ -664,10 +662,10 @@ func _command_tracks(
 		move_toward(_track_command.x, target_speed, drive_acceleration * delta),
 		move_toward(_track_command.y, target_yaw, yaw_acceleration * delta)
 	)
-	# Sin mando, la banda no puede correr más que el casco: estamparse contra un muro la para en seco,
-	# como una oruga engranada al piñón, en vez de dejarla frenar sola durante dos segundos. El recorte
-	# solo baja la magnitud, nunca la sube, así que una explosión con el motor parado sigue sin
-	# moverla. Con gas mantenido contra el muro sí patina, que es lo que hace un tanque de verdad.
+	# Without input, the tracks cannot run faster than the hull: hitting a wall stops them immediately,
+	# like a track engaged with its sprocket, instead of letting them coast for two seconds. This
+	# clamp only reduces magnitude, never increases it, so an explosion cannot move tracks with the
+	# engine off. Holding the throttle against a wall does make them slip, as on a real tank.
 	if vehicle != null and is_instance_valid(vehicle):
 		if is_zero_approx(target_speed):
 			var speed := absf(vehicle.linear_velocity.dot(vehicle.forward_direction()))
@@ -677,9 +675,9 @@ func _command_tracks(
 			_track_command.y = clampf(_track_command.y, -spin, spin)
 	if _track_surface == null:
 		return
-	# Un pivote parado suma velocidad a una banda y se la resta a la otra, así que las orugas corren
-	# en sentidos opuestos. El signo sale de v = v_avance + ω × r con r sobre el eje lateral del
-	# casco: la banda de +Z gana ω·semiancho, y `offsets.x` es la de índice lateral bajo, la de -Z.
+	# A stationary pivot adds speed to one track and subtracts it from the other, so they run in
+	# opposite directions. The sign follows v = v_forward + ω × r, with r on the hull's lateral axis:
+	# the +Z track gains ω·half-width, and `offsets.x` is the low-lateral-index track on -Z.
 	var half_width := TRACK_CELL_BOUNDS.size.z * 0.5 / TRACK_CELLS_PER_METRE
 	var cells := delta * TRACK_CELLS_PER_METRE
 	_track_surface.advance(
@@ -708,7 +706,7 @@ func _camera_aim_point(camera: Camera3D, delta: float) -> Vector3:
 	return from + direction * _aim_distance
 
 
-## Yaw que hay que pedirle a la corona para que el cañón (+X del modelo) mire hacia `aim`.
+## Yaw to request from the turret ring so the cannon (+X in the model) points toward `aim`.
 static func aim_yaw(aim: Vector3, hull_basis: Basis) -> float:
 	return wrapf(_plane_yaw(aim) - _plane_yaw(hull_basis.x), -PI, PI)
 

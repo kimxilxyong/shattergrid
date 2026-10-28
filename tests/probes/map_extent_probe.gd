@@ -1,6 +1,6 @@
 extends SceneTree
-## Cuanto ocupa el mapa de verdad. Decide si se puede sustituir los 4 clipmaps que se desplazan por
-## un solo volumen estatico del mapa entero, que es lo que hace Teardown (1252x128x1252, 3 mips).
+## Measure the map's actual size to determine whether the four moving clipmaps can be replaced by
+## a single static volume for the entire map, as Teardown does (1252x128x1252, 3 mips).
 
 var XML := VoxelProjectPaths.teardown_map_path()
 
@@ -8,7 +8,7 @@ var XML := VoxelProjectPaths.teardown_map_path()
 func _initialize() -> void:
 	var world := VoxelWorld3D.new()
 	root.add_child(world)
-	# Sin colision: aqui solo interesan las cajas, y con colision son 15 s mas.
+	# No collision: only the bounds matter here, and collision adds another 15 seconds.
 	TeardownMapImporter.import_map(world, XML, Vector3.INF, INF, Vector3.ZERO, false)
 	var bounds := AABB()
 	var first := true
@@ -20,8 +20,8 @@ func _initialize() -> void:
 			if shape.voxel_count() == 0:
 				continue
 			shapes += 1
-			# `world_bounds()` usa `global_transform` y las Shapes no estan en el arbol durante la
-			# importacion: se compone a mano, igual que hace `clipmap_cost_probe`.
+			# `world_bounds()` uses `global_transform`, but Shapes are not in the tree during import;
+			# compose the transform manually, as `clipmap_cost_probe` does.
 			var to_world: Transform3D = (body as Node3D).transform * shape.transform
 			var size := Vector3(shape.data.get_dimensions()) * shape.voxel_size
 			var local := AABB(-size * 0.5, size)
@@ -40,16 +40,16 @@ func _initialize() -> void:
 			bounds = box if first else bounds.merge(box)
 			first = false
 	print("shapes=%d" % shapes)
-	print("extension del mapa: %.1f x %.1f x %.1f m  desde %s" % [
+	print("map extent: %.1f x %.1f x %.1f m  from %s" % [
 		bounds.size.x, bounds.size.y, bounds.size.z, bounds.position
 	])
 	for cell: float in [0.1, 0.2, 0.4]:
 		var cells: Vector3 = (bounds.size / cell).ceil()
-		# Un texel R8UI guarda 2x2x2 celdas, igual que ahora.
+		# One R8UI texel stores 2x2x2 cells, as it does now.
 		var texels: Vector3 = (cells / 2.0).ceil()
 		var bytes: float = texels.x * texels.y * texels.z
-		print("  celda %.2f m -> %d x %d x %d texeles = %.0f MB (con mips %.0f MB)" % [
+		print("  %.2f m cells -> %d x %d x %d texels = %.0f MB (with mips %.0f MB)" % [
 			cell, texels.x, texels.y, texels.z, bytes / 1048576.0, bytes * 1.14 / 1048576.0
 		])
-	print("ahora mismo: 4 niveles x 2 capas x 256^3 = %.0f MB" % (8.0 * 256 * 256 * 256 / 1048576.0))
+	print("current: 4 levels x 2 layers x 256^3 = %.0f MB" % (8.0 * 256 * 256 * 256 / 1048576.0))
 	quit()

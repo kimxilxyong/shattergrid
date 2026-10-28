@@ -206,8 +206,8 @@ bool VoxelShapeData::set_cells(const Vector3i &p_dimensions, const PackedByteArr
 bool VoxelShapeData::set_cells_from_xyzi(const Vector3i &p_source_size, const PackedByteArray &p_xyzi) {
     const Vector3i target(p_source_size.x, p_source_size.z, p_source_size.y);
     const int64_t expected = static_cast<int64_t>(target.x) * target.y * target.z;
-    // El tope es el mismo que impone `configure()`: por debajo de él `cells` y `macro_occupancy`
-    // quedan garantizadamente dimensionadas y a cero, y el bucle puede escribir directo.
+    // This is the same limit enforced by `configure()`: below it, `cells` and `macro_occupancy`
+    // are guaranteed to be correctly sized and zeroed, so the loop can write directly.
     if (target.x <= 0 || target.y <= 0 || target.z <= 0 || expected > 512LL * 512LL * 512LL) {
         return false;
     }
@@ -233,8 +233,8 @@ bool VoxelShapeData::set_cells_from_xyzi(const Vector3i &p_source_size, const Pa
         }
         write[index] = entry[3];
         ++material_counts[entry[3]];
-        // La ocupación de la macrocelda se conoce aquí mismo. `rebuild_macrocells()` rebarría la
-        // rejilla densa entera para deducir lo mismo: 453 M de celdas por mapa, 2,2 s de carga.
+        // Macrocell occupancy is known right here. `rebuild_macrocells()` used to rescan the entire
+        // dense grid to derive the same result: 453 M cells per map and 2.2 s of load time.
         macros[macro_index_of(i / MACRO_SIZE, k / MACRO_SIZE, z / MACRO_SIZE)] = 1;
     }
     return true;
@@ -351,9 +351,9 @@ PackedByteArray VoxelShapeData::get_cells() const {
 }
 
 PackedByteArray VoxelShapeData::get_used_materials() const {
-    // El barrido es la rejilla densa entera -453 M de celdas en el mapa de Teardown- y se hacia
-    // celda a celda con PackedByteArray::set: 4,9 s del arranque. Con el puntero crudo y una tabla
-    // local es una lectura secuencial y la copia final son 256 bytes.
+    // The scan covers the entire dense grid (453 M cells in the Teardown map) and used to write
+    // cell by cell with PackedByteArray::set: 4.9 s of startup time. A raw pointer and a local table
+    // make it a sequential read, and the final copy is 256 bytes.
     uint8_t seen[256] = {0};
     const uint8_t *source = cells.ptr();
     const int64_t count = cells.size();
@@ -411,9 +411,9 @@ bool VoxelShapeData::set_cell(int p_x, int p_y, int p_z, int p_material) {
     return true;
 }
 
-// Índices lineales de los macroceldas que contienen algo. `rebuild_static_collision` recorría las
-// tres dimensiones enteras llamando a `build_macro_faces` en cada una: en un mapa de Teardown eso
-// son casi dos millones de llamadas nativas que devuelven vacío, y ahí se iban minutos de carga.
+// Linear indices of macrocells that contain data. `rebuild_static_collision` traversed all three
+// dimensions and called `build_macro_faces` for each one: on a Teardown map, that meant nearly two
+// million native calls returning nothing, adding minutes to load time.
 PackedInt32Array VoxelShapeData::get_occupied_macros() const {
     PackedInt32Array result;
     const uint8_t *occupancy = macro_occupancy.ptr();
@@ -463,11 +463,11 @@ PackedInt32Array VoxelShapeData::get_live_indices_region(
     return result;
 }
 
-// Reconoce el cimiento: el suelo de Teardown es `rock`, dureza 1e6, que no se rompe con nada, asi
-// que una Shape con roca viva dentro es ancla por definicion. Sale en el primer voxel que cumple, y
-// eso importa: el terreno de Lee son 25 M de celdas y es roca desde la primera, mientras que un
-// edificio -que no lo cumple nunca- son cuatro ordenes de magnitud menos celdas que recorrer.
-// Devolver el maximo en vez de un si/no obligaba a recorrerlo entero siempre: 135 ms por disparo.
+// Recognize foundations: Teardown ground is `rock`, with hardness 1e6, and cannot be destroyed.
+// Therefore, a Shape containing live rock is a foundation by definition. Return on the first
+// matching voxel: Lee's terrain has 25 M cells and is rock from the first one, while a building
+// (which never matches) has four orders of magnitude fewer cells to scan.
+// Returning the maximum instead of a yes/no value required scanning the whole grid: 135 ms per shot.
 bool VoxelShapeData::has_hardness_at_least(
         const PackedFloat32Array &p_hardnesses, double p_threshold) const {
     if (p_hardnesses.size() < 256) {
@@ -518,15 +518,15 @@ PackedInt32Array VoxelShapeData::get_indices_hardness_at_least(
     return result;
 }
 
-// Contacto real entre dos volumenes de voxeles: existe algun voxel vivo de este cuya caja, crecida
-// `p_margin` metros, contenga un voxel vivo del otro. Es el primitivo que le faltaba al modelo
-// estructural: Teardown no analiza tensiones, solo pregunta si un trozo sigue conectado al suelo, y
-// esa conexion es indirecta y atraviesa Shapes distintas. Solapar cajas envolventes no vale — las
-// AABB de un barrio entero se solapan entre si y todo saldria conectado con todo.
+// Real contact between two voxel volumes: at least one live voxel in this volume has a box expanded
+// by `p_margin` meters that contains a live voxel from the other. This is the primitive missing from
+// the structural model: Teardown does not analyze stress, only whether a piece remains connected to
+// the ground, and that connection can be indirect and pass through multiple Shapes. Overlapping
+// bounding boxes are insufficient: AABBs of entire neighborhoods overlap, making everything
+// appear connected to everything else.
 //
-// El recorrido se limita al solape de las dos cajas expresado en voxeles propios, y se sale en el
-// primer contacto. Se recorren los voxeles del volumen sobre el que se llama, asi que conviene
-// llamarlo desde el mas pequeno de los dos.
+// Limit the scan to the overlap of the two boxes, expressed in this volume's voxels, and stop at
+// the first contact. The voxels of the called-on volume are scanned, so call this on the smaller one.
 bool VoxelShapeData::touches(const Ref<VoxelShapeData> &p_other, const Transform3D &p_other_to_self,
         double p_self_voxel_size, double p_other_voxel_size, double p_margin,
         int p_max_scan) const {
@@ -537,7 +537,7 @@ bool VoxelShapeData::touches(const Ref<VoxelShapeData> &p_other, const Transform
     const Transform3D self_to_other = p_other_to_self.affine_inverse();
     const Vector3 self_half = Vector3(dimensions) * 0.5;
     const Vector3 other_half = Vector3(other->dimensions) * 0.5;
-    // La caja del otro volumen, en voxeles de este, para recortar el recorrido.
+    // The other volume's box, expressed in this volume's voxels, to limit the scan.
     Vector3 low(std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity(),
             std::numeric_limits<double>::infinity());
     Vector3 high = -low;
@@ -562,17 +562,17 @@ bool VoxelShapeData::touches(const Ref<VoxelShapeData> &p_other, const Transform
             std::clamp(int(std::ceil(high.x + margin_voxels)), scan_low.x, dimensions.x),
             std::clamp(int(std::ceil(high.y + margin_voxels)), scan_low.y, dimensions.y),
             std::clamp(int(std::ceil(high.z + margin_voxels)), scan_low.z, dimensions.z));
-    // El margen se aplica en voxeles del OTRO volumen, que es donde se hace la consulta.
+    // Apply the margin in the OTHER volume's voxels, where the query is performed.
     const int reach = std::max(0, int(std::ceil(p_margin / p_other_voxel_size)));
-    // Un techo opcional solo sirve para consultas aproximadas. Las consultas estructurales usan
-    // cero (exacto). Agotar el presupuesto nunca puede inventar una union de material.
+    // An optional cap is only for approximate queries. Structural queries use zero (exact).
+    // Exhausting the budget must never invent a material connection.
     int64_t budget = p_max_scan > 0 ? int64_t(p_max_scan) : std::numeric_limits<int64_t>::max();
-    // Dos podas, y sin ellas cada llamada costaba 2,7 ms en Lee:
+    // Two pruning steps; without them, each call took 2.7 ms in Lee:
     //
-    //  1. Macroceldas. Un bloque de 8x8x8 vacio se salta de golpe, 512 celdas de una.
-    //  2. Solo superficie. Un voxel con sus seis vecinos solidos no puede tocar otro volumen: esta
-    //     tapado por los suyos. Comprobar seis vecinos es mucho mas barato que transformar el centro
-    //     al espacio del otro volumen y mirarle el vecindario de 3x3x3.
+    //  1. Macro-cells. Skip an empty 8x8x8 block at once: 512 cells in one operation.
+    //  2. Surface only. A voxel with six solid neighbors cannot touch another volume; it is
+    //     enclosed by its own neighbors. Checking six neighbors is much cheaper than transforming
+    //     the center into the other volume's space and inspecting its 3x3x3 neighborhood.
     const Vector3i macro_low(scan_low.x / MACRO_SIZE, scan_low.y / MACRO_SIZE, scan_low.z / MACRO_SIZE);
     const Vector3i macro_high((scan_high.x - 1) / MACRO_SIZE, (scan_high.y - 1) / MACRO_SIZE,
             (scan_high.z - 1) / MACRO_SIZE);
@@ -751,9 +751,9 @@ bool VoxelShapeData::component_seed_touches(int p_seed_index,
     const Vector3 other_half = Vector3(other->dimensions) * 0.5;
     const int reach = std::max(0, int(std::ceil(p_margin / p_other_voxel_size)));
     const int component_count = connectivity_root_voxel_counts[static_cast<size_t>(target_root)];
-    // Recorrer el otro volumen solo gana cuando es claramente menor. Elegirlo por una diferencia
-    // marginal hacia que una consulta negativa 166 K vs 101 K escaneara 101 K voxeles y costara
-    // 20 ms en Lee; el camino por la raiz propia recorta primero por macroceldas de solape.
+    // Scanning the other volume is only faster when it is substantially smaller. Choosing it for a
+    // marginal size difference made a negative 166 K vs. 101 K query scan 101 K voxels and take
+    // 20 ms in Lee; the path using this volume's root first prunes by overlapping macro-cells.
     if (static_cast<int64_t>(other->occupied_count) * 8 < component_count) {
         const int self_reach = std::max(0, int(std::ceil(p_margin / p_self_voxel_size)));
         for (int macro = 0; macro < other->macro_occupancy.size(); ++macro) {
@@ -987,23 +987,23 @@ PackedByteArray VoxelShapeData::rasterize_occupancy_region(const Transform3D &p_
     return result;
 }
 
-// Rellena un nivel entero de la clipmap de sombras de una vez. Antes esto lo hacía GDScript con un
-// bucle por voxel vivo de cada Shape y por nivel: en Lee son 79,3 M x 4 = 317 M de iteraciones a
-// 1,58 M/s, o sea 201 s de arranque con la ventana en negro. La versión por Shape que ya había en
-// C++ (`rasterize_occupancy_region`) no vale aquí porque duplica los 16 MB del buffer en cada
-// llamada, y son 2312 Shapes por nivel.
+// Fills an entire shadow-clipmap level at once. Previously, GDScript did this with a loop over
+// every live voxel in every Shape and every level: Lee has 79.3 M x 4 = 317 M iterations at
+// 1.58 M/s, or 201 seconds of startup with a black window. The existing per-Shape C++ version
+// (`rasterize_occupancy_region`) is not suitable here because it duplicates the buffer's 16 MB on
+// every call, and there are 2,312 Shapes per level.
 //
-// Tres cosas la hacen barata, por orden de importancia:
+// Three things make it inexpensive, in order of importance:
 //
-//  1. Descarte por bounds. Cada nivel cubre 512 celdas: 51,2 m el 0 y 409,6 m el 3. Una Shape que
-//     no toca la caja del nivel se salta entera sin mirarle un solo voxel, y el recorte de la que
-//     sí la toca se limita al solape.
-//  2. Macroceldas en los niveles gruesos. Cuando la celda del nivel es igual o mayor que una
-//     macrocelda (8 voxeles), basta con marcar la huella de cada macrocelda ocupada en vez de sus
-//     512 voxeles. Es conservador — puede engordar el ocluyente una celda — que es justo lo que se
-//     quiere de un mip.
-//  3. Recorrido incremental. Avanzar un voxel en X suma una constante a la posición de mundo, así
-//     que no hace falta un `xform` completo por voxel.
+//  1. Bounds rejection. Each level covers 512 cells: 51.2 m at level 0 and 409.6 m at level 3. A
+//     Shape outside the level's bounds is skipped without inspecting a voxel, and Shapes that do
+//     overlap are cropped to the intersection.
+//  2. Macrocells at coarse levels. When a level's cell is at least as large as a macrocell
+//     (8 voxels), marking each occupied macrocell's footprint is enough instead of its 512 voxels.
+//     This is conservative—it may enlarge the occluder by one cell—which is exactly what a mip is
+//     meant to do.
+//  3. Incremental traversal. Advancing one voxel along X adds a constant to the world position, so
+//     a full `xform` is not needed for every voxel.
 PackedByteArray VoxelShapeData::rasterize_occupancy_level(const TypedArray<VoxelShapeData> &p_shapes,
         const TypedArray<Transform3D> &p_transforms, const PackedFloat32Array &p_voxel_sizes,
         const Vector3i &p_world_low, const Vector3i &p_logical_size, double p_cell_size,
@@ -1025,14 +1025,14 @@ PackedByteArray VoxelShapeData::rasterize_occupancy_level(const TypedArray<Voxel
     const Vector3 level_low = Vector3(p_world_low) * p_cell_size;
     const Vector3 level_high = level_low + Vector3(p_logical_size) * p_cell_size;
 
-    // Celda del nivel, ya relativa a su origen, para una posición de mundo.
+    // Level cell relative to its origin for a world position.
     const auto cell_of = [&](const Vector3 &world) {
         return Vector3i(
                 static_cast<int>(std::floor(world.x / p_cell_size)) - p_world_low.x,
                 static_cast<int>(std::floor(world.y / p_cell_size)) - p_world_low.y,
                 static_cast<int>(std::floor(world.z / p_cell_size)) - p_world_low.z);
     };
-    // Marca una celda. Devuelve sin tocar nada si cae fuera del nivel.
+    // Marks a cell. Returns without changing anything if it is outside the level.
     const auto mark = [&](const Vector3i &cell) {
         if (cell.x < 0 || cell.y < 0 || cell.z < 0 || cell.x >= p_logical_size.x ||
                 cell.y >= p_logical_size.y || cell.z >= p_logical_size.z) {
@@ -1057,8 +1057,8 @@ PackedByteArray VoxelShapeData::rasterize_occupancy_level(const TypedArray<Voxel
         const Vector3i shape_dimensions = shape->dimensions;
         const Vector3 half = Vector3(shape_dimensions) * 0.5;
 
-        // Recorte al solape con la caja del nivel, en coordenadas de voxel de esta Shape. Se llevan
-        // las ocho esquinas de la caja al espacio local porque la Shape puede venir rotada.
+        // Crop to the overlap with the level bounds, in this Shape's voxel coordinates. Transform
+        // all eight box corners into local space because the Shape may be rotated.
         const Transform3D inverse = transform.affine_inverse();
         Vector3 local_minimum(std::numeric_limits<double>::infinity(),
                 std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity());
@@ -1072,11 +1072,11 @@ PackedByteArray VoxelShapeData::rasterize_occupancy_level(const TypedArray<Voxel
             local_minimum = local_minimum.min(local_voxel);
             local_maximum = local_maximum.max(local_voxel);
         }
-        // El margen de un voxel no es paranoia: el recorte se calcula llevando la caja del nivel al
-        // espacio local con la transformada inversa, y el marcado lleva el voxel al mundo con la
-        // directa. En float las dos no coinciden al último bit, así que un voxel justo en el borde
-        // caía fuera del recorte y su celda se perdía. Sin el margen, el test encontraba 7 celdas
-        // ausentes en el nivel 2 del recorte de Lee.
+        // The one-voxel margin is not paranoia: cropping transforms the level bounds into local
+        // space with the inverse transform, while marking transforms voxels into world space with
+        // the forward transform. In floating point these can differ by a few bits, so a voxel
+        // exactly on the edge could be cropped out and its cell lost. Without the margin, the test
+        // found seven missing cells at level 2 in the Lee crop.
         const Vector3i voxel_low(
                 std::clamp(static_cast<int>(std::floor(local_minimum.x)) - 1, 0, shape_dimensions.x),
                 std::clamp(static_cast<int>(std::floor(local_minimum.y)) - 1, 0, shape_dimensions.y),
@@ -1090,9 +1090,9 @@ PackedByteArray VoxelShapeData::rasterize_occupancy_level(const TypedArray<Voxel
         }
 
         if (p_cell_size >= MACRO_SIZE * voxel_size) {
-            // Nivel grueso: una macrocelda cabe en una celda, así que se marca su huella y se
-            // ahorran los 512 voxeles de dentro. El nivel 3 usa celdas de 0,8 m, que son
-            // exactamente los 8 voxeles de 0,1 m de una macrocelda.
+            // Coarse level: a macrocell fits in one cell, so mark its footprint and skip its 512
+            // voxels. Level 3 uses 0.8 m cells, exactly the size of eight 0.1 m voxels in a
+            // macrocell.
             const Vector3i macro_low(voxel_low.x / MACRO_SIZE, voxel_low.y / MACRO_SIZE, voxel_low.z / MACRO_SIZE);
             const Vector3i macro_high((voxel_high.x + MACRO_SIZE - 1) / MACRO_SIZE,
                     (voxel_high.y + MACRO_SIZE - 1) / MACRO_SIZE,
@@ -1104,9 +1104,9 @@ PackedByteArray VoxelShapeData::rasterize_occupancy_level(const TypedArray<Voxel
                         if (macros[shape->macro_index_of(mx, my, mz)] == 0) {
                             continue;
                         }
-                        // Huella de la macrocelda: sus ocho esquinas llevadas a mundo, y todas las
-                        // celdas de la caja que las contiene. Con la Shape sin rotar son una o dos
-                        // celdas por eje; rotada, alguna más, siempre de sobra y nunca de menos.
+                        // Macrocell footprint: transform its eight corners into world space, then
+                        // mark every cell in their bounding box. An unrotated Shape covers one or
+                        // two cells per axis; a rotated one may cover more, always enough.
                         const Vector3 base = (Vector3(mx, my, mz) * MACRO_SIZE - half) * voxel_size;
                         Vector3 world_minimum(std::numeric_limits<double>::infinity(),
                                 std::numeric_limits<double>::infinity(),
@@ -1136,10 +1136,11 @@ PackedByteArray VoxelShapeData::rasterize_occupancy_level(const TypedArray<Voxel
             continue;
         }
 
-        // Cada voxel se lleva a mundo con su `xform` completo. Partir de la esquina e ir sumando
-        // pasos es más rápido pero no da el mismo bit: `xform(a) + B*d` y `xform(a + d)` redondean
-        // distinto, y un voxel a menos de una millonésima de un borde de celda cambia de celda al
-        // truncar. Sobre el recorte de Lee eso eran 7 celdas perdidas en el nivel 2.
+        // Each voxel is transformed into world space with its complete `xform`. Starting at the
+        // corner and adding incremental steps is faster but not bit-identical:
+        // `xform(a) + B*d` and `xform(a + d)` round differently, and truncation can move a voxel
+        // less than a millionth of a cell edge into another cell. In Lee's crop, that lost seven
+        // cells at level 2.
         const uint8_t *voxels = shape->cells.ptr();
         for (int z = voxel_low.z; z < voxel_high.z; ++z) {
             for (int y = voxel_low.y; y < voxel_high.y; ++y) {
@@ -1158,10 +1159,10 @@ PackedByteArray VoxelShapeData::rasterize_occupancy_level(const TypedArray<Voxel
     return result;
 }
 
-// `p_block` agrupa varias macroceldas en una sola malla de colisión. Con 1 sale una malla por
-// macrocelda de 8 voxeles, que es lo que quiere una pared que recibe impactos; con 4 sale una cada
-// 32 voxeles (3,2 m), sesenta y cuatro veces menos formas cóncavas que construir. En un mapa de
-// Teardown esa diferencia son 13.000 formas y cuatro segundos por cada 380.000 voxeles cargados.
+// `p_block` groups several macrocells into one collision mesh. A value of 1 produces a mesh per
+// 8-voxel macrocell, suitable for a wall that takes impacts; a value of 4 produces one per
+// 32 voxels (3.2 m), requiring 64 times fewer concave shapes. On a Teardown map, that difference
+// is 13,000 shapes and four seconds for every 380,000 loaded voxels.
 PackedVector3Array VoxelShapeData::build_macro_faces(
         const Vector3i &p_macro, double p_voxel_size, int p_block, int p_lod,
         const PackedByteArray &p_collidable) const {
@@ -1180,11 +1181,11 @@ PackedVector3Array VoxelShapeData::build_macro_faces(
             std::min(low.y + span, dimensions.y),
             std::min(low.z + span, dimensions.z));
 
-    // Un bloque agrupa hasta 4x4x4 macroceldas y el barrido recorría su volumen entero — 32^3
-    // celdas por cada uno de los seis ejes — aunque dentro solo hubiera una losa de suelo. Se
-    // recorta a la caja de las macroceldas con algo dentro; luego, ya dentro de esa caja, se salta
-    // de golpe cada macrocelda vacía, porque una celda de una macrocelda vacía es aire y nunca da
-    // cara. Sin esto el mapa entero costaba 24,5 s solo en generar caras.
+    // A block groups up to 4x4x4 macrocells, and the scan used to traverse its entire volume—32^3
+    // cells along each of the six axes—even when it contained only a floor slab. Crop to the bounds
+    // of macrocells containing data, then skip each empty macrocell within those bounds, because
+    // every cell in an empty macrocell is air and cannot produce a face. Without this, generating
+    // faces alone took 24.5 s for the entire map.
     const uint8_t *occupancy = macro_occupancy.ptr();
     const Vector3i macro_low = p_macro * block;
     const Vector3i macro_high(
@@ -1219,14 +1220,15 @@ PackedVector3Array VoxelShapeData::build_macro_faces(
     };
 
     const Vector3 half_dimensions = Vector3(dimensions) * 0.5;
-    // `cells[i]` en godot-cpp no es un acceso a memoria: es una llamada a
-    // `packed_byte_array_operator_index_const` a través de la interfaz GDExtension, que no se puede
-    // inlinear. Esta lambda se llama dos veces por celda de cada bloque y seis veces por eje, así
-    // que en el mapa entero eran miles de millones de llamadas: 29,7 s de las caras de colisión.
+    // `cells[i]` in godot-cpp is not a memory access: it calls
+    // `packed_byte_array_operator_index_const` through the GDExtension interface, which cannot be
+    // inlined. This lambda is called twice per cell in every block and six times per axis, adding
+    // billions of calls on the full map and 29.7 s to collision-face generation.
     const uint8_t *voxels = cells.ptr();
-    // Una entrada por indice de paleta: 0 = el jugador lo atraviesa. Teardown marca asi el follaje
-    // y su material `unphysical`, y aqui esos voxeles cuentan como aire — se siguen dibujando y
-    // rompiendo, pero no entran en la malla que recibe Jolt. Vacia = todo colisiona.
+    // One entry per palette index: 0 means the player passes through it. Teardown marks foliage
+    // this way with its `unphysical` material; these voxels count as air here—they are still
+    // rendered and destructible, but are omitted from the mesh sent to Jolt. Empty means all
+    // materials collide.
     const uint8_t *collidable = p_collidable.size() == 256 ? p_collidable.ptr() : nullptr;
     const auto coarse_occupied = [&](int x0, int y0, int z0) {
         if (x0 < 0 || y0 < 0 || z0 < 0 ||
@@ -1248,9 +1250,9 @@ PackedVector3Array VoxelShapeData::build_macro_faces(
     const auto world_point = [&](int x, int y, int z) {
         return (Vector3(x, y, z) - half_dimensions) * p_voxel_size;
     };
-    // `faces.append()` es otra llamada a través de la interfaz GDExtension. El mapa entero son
-    // 216 M de vertices, o sea 216 M de llamadas y sus realojos: se acumulan en un vector normal y
-    // se vuelca de una vez al final.
+    // `faces.append()` is another call through the GDExtension interface. The full map has
+    // 216 M vertices, which means 216 M calls and reallocations; collect them in a regular vector
+    // and transfer them all at once at the end.
     std::vector<Vector3> collected;
     const auto append_quad = [&](const Vector3 &a, const Vector3 &b,
                                  const Vector3 &c, const Vector3 &d) {
@@ -1299,10 +1301,10 @@ PackedVector3Array VoxelShapeData::build_macro_faces(
                         z = slice;
                     }
                     if (macro_empty(x, y, z)) {
-                        // Toda la macrocelda es aire: se salta hasta su borde en vez de mirar sus
-                        // ocho celdas una a una.
-                        // Se redondea hacia abajo: con lod > 1 redondear hacia arriba se pasaría
-                        // del borde y se saltaría celdas que sí pueden dar cara.
+                        // The entire macro-cell is air: skip to its edge instead of checking its
+                        // eight cells one by one.
+                        // Round down: with LOD > 1, rounding up could cross the edge and skip
+                        // cells that may contain a face.
                         const int cell_u = axis == 0 ? y : x;
                         u += std::max(1, (MACRO_SIZE - cell_u % MACRO_SIZE) / lod) - 1;
                         continue;
@@ -1812,10 +1814,9 @@ Array VoxelShapeData::find_components_6() const {
     const int size_y = dimensions.y;
     const int plane = size_x * size_y;
 
-    // El barrido que busca semillas salta las macroceldas vacias de golpe, 512 celdas por bloque. El
-    // terreno de Lee son 25 M de celdas y una cascara de tres voxeles de grosor: recorrerlas una a
-    // una para encontrar semillas eran 35 ms por disparo, y el resultado es identico — en un bloque
-    // sin un solo voxel vivo no puede empezar ninguna componente.
+    // The seed-search scan skips empty macro-cells at once, 512 cells per block. Lee's terrain has
+    // 25 M cells and a shell three voxels thick: scanning them individually for seeds took 35 ms per
+    // shot, with the same result—no component can start in a block without a live voxel.
     for (int macro = 0; macro < macro_occupancy.size(); ++macro) {
         if (macro_occupancy[macro] == 0) {
             continue;
@@ -2252,8 +2253,8 @@ Array VoxelShapeData::find_components_6_with_anchors_reference(
         return classified;
     }
     const uint8_t *cell_data = cells.ptr();
-    // Sin anclas no hace falta la mascara: en el mapa de Teardown ninguna Shape las tiene, y reservar
-    // y poner a cero un byte por celda son 25 MB de nada en el volumen del terreno.
+    // Without anchors, the mask is unnecessary: no Shape in the Teardown map has them, and
+    // reserving and zeroing one byte per cell would waste 25 MB on the terrain volume.
     std::vector<uint8_t> anchor_mask;
     if (!p_anchor_indices.is_empty()) {
         anchor_mask.assign(static_cast<size_t>(cells.size()), 0);
@@ -2277,10 +2278,9 @@ Array VoxelShapeData::find_components_6_with_anchors_reference(
     const int size_x = dimensions.x;
     const int size_y = dimensions.y;
     const int plane = size_x * size_y;
-    // El barrido que busca semillas salta las macroceldas vacias de golpe, 512 celdas por bloque. El
-    // terreno de Lee son 25 M de celdas y una cascara de tres voxeles de grosor: recorrerlas una a
-    // una para encontrar semillas eran 35 ms por disparo, y el resultado es identico — en un bloque
-    // sin un solo voxel vivo no puede empezar ninguna componente.
+    // The seed-search scan skips empty macro-cells at once, 512 cells per block. Lee's terrain has
+    // 25 M cells and a shell three voxels thick: scanning them individually for seeds took 35 ms per
+    // shot, with the same result—no component can start in a block without a live voxel.
     for (int macro = 0; macro < macro_occupancy.size(); ++macro) {
         if (macro_occupancy[macro] == 0) {
             continue;

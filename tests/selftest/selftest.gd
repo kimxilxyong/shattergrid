@@ -1,10 +1,11 @@
 class_name VoxelSelfTest
 extends SceneTree
-## Base de los selftests: contador de fallos, montaje del mundo y cajas estáticas. Lo que había
-## copiado en 28 archivos palabra por palabra.
+## Self-test base: failure counter, world setup, and static boxes. This replaces code that had been
+## copied verbatim into 28 files.
 ##
-## Un test hereda de aquí y define `_run()`; el `_init` de esta clase ya lo difiere. No redefinas
-## `_init` en el hijo: GDScript llama igualmente al del padre y `_run` correría dos veces.
+## A test inherits this class and defines `_run()`; this class already defers it from `_init`.
+## Do not redefine `_init` in a subclass: GDScript still calls the parent implementation and `_run`
+## would execute twice.
 
 var failures := 0
 
@@ -14,7 +15,7 @@ func _init() -> void:
 
 
 func _run() -> void:
-	push_error("el selftest no define _run()")
+	push_error("the self-test does not define _run()")
 	quit(1)
 
 
@@ -23,10 +24,10 @@ func _check(condition: bool, message := "") -> void:
 		print("  ok   ", message)
 	else:
 		failures += 1
-		printerr("  FALLO ", message)
+		printerr("  FAIL ", message)
 
 
-## El mundo que monta casi todo el mundo: sin diagnósticos y con presupuesto de física.
+## The world setup used by most tests: no diagnostics and with a physics budget.
 func make_world(with_budget := true) -> VoxelWorld3D:
 	var world := VoxelWorld3D.new()
 	world.show_diagnostics = false
@@ -36,8 +37,8 @@ func make_world(with_budget := true) -> VoxelWorld3D:
 	return world
 
 
-## Suelo, muro o repisa. Coloca el cuerpo entero en vez de desplazar la Shape dentro de él: para un
-## StaticBody es la misma pose y ahorra el ajuste a mano en cada llamada.
+## Floor, wall, or ledge. Position the whole body instead of offsetting the Shape inside it: for a
+## StaticBody the pose is equivalent, and this avoids adjusting it manually at every call site.
 static func make_box_body(parent: Node, size: Vector3, position := Vector3.ZERO) -> StaticBody3D:
 	var body := StaticBody3D.new()
 	var collision := CollisionShape3D.new()

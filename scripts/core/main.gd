@@ -1,11 +1,11 @@
 extends Node3D
-## Bootstrap de la escena: monta las piezas en orden y las conecta entre si. Escenario, HUD, tanque,
-## ambiente y herramientas de diagnostico tienen controlador propio; aqui solo se decide quien nace
-## antes que quien.
+## Scene bootstrap: creates the components in order and connects them. The scenario, HUD, tank,
+## environment, and diagnostic tools each have their own controller; this class only decides what
+## is created first.
 ##
-## El orden importa y no es negociable: el escenario primero -es lo unico que tarda y lo que fija la
-## posicion de entrada del jugador-, el renderer despues -necesita el mundo ya poblado para construir
-## atlas y BVH-, y el HUD al final, cuando ya hay algo que contar.
+## The order matters: scenario first—it is the only slow part and sets the player's entry
+## position—then the renderer, which needs the populated world to build the atlas and BVH, and HUD
+## last, once there is something to report.
 
 @onready var _voxel_world: VoxelWorld3D = $VoxelWorld
 @onready var _hud: GameHud = $HUD
@@ -22,12 +22,11 @@ func _ready() -> void:
 		collider_debug.name = "ColliderDebug"
 		add_child(collider_debug)
 		collider_debug.setup($Player/Camera3D, [($Player as CollisionObject3D).get_rid()])
-	# Sin esto `trace_sun_shadow` devuelve 1.0 siempre y no hay una sola sombra en pantalla. Es la
-	# misma idea que usa Teardown: trazar el rayo al sol contra un volumen de bits del mundo con
-	# mips, no un shadow map. Llenar ese volumen costaba 201 s en el mapa entero cuando lo hacia
-	# GDScript voxel a voxel; en C++ y con las macroceldas la rasterizacion pura son 2,9 s
-	# (`tests/clipmap_raster_selftest.gd`); repartida entre los cuatro niveles y con los bytes como
-	# datos iniciales de la textura, en la escena real son ~2,6 s. Eso y 134 MB cuesta al cargar.
+	# Without this, `trace_sun_shadow` always returns 1.0 and no shadows appear. As in Teardown, trace
+	# the sun ray against a mipmapped bit volume of the world rather than a shadow map. Filling that
+	# volume voxel by voxel in GDScript took 201 s for the full map; in C++ with macrocells, rasterizing
+	# it takes 2.9 s (`tests/clipmap_raster_selftest.gd`). Across all four levels, using the bytes as
+	# initial texture data, it takes about 2.6 s in the real scene and costs 134 MB at load time.
 	_voxel_world.renderer_settings.sun_shadows_enabled = \
 		not "--no-voxel-sun-shadows" in OS.get_cmdline_user_args()
 	_scenario = ScenarioLoader.new()
@@ -54,10 +53,10 @@ func _ready() -> void:
 	else:
 		renderer_started = _voxel_renderer.setup(_voxel_world, $Player/Camera3D)
 	if not renderer_started:
-		push_error("No se pudo iniciar el renderer DDA dedicado")
+		push_error("Could not start the dedicated DDA renderer")
 	_scenario.close_loading()
 	_scenario.apply_environment_to(_voxel_renderer)
-	# El HUD usa estas metricas tambien fuera de los benchmarks.
+	# The HUD also uses these metrics outside benchmarks.
 	RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), true)
 	_hud.setup(_voxel_world, _voxel_renderer, $Player, $Player/Camera3D)
 	_diagnostics = MainDiagnostics.new()

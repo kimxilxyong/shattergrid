@@ -1,17 +1,16 @@
 extends "res://tests/selftest/selftest.gd"
-## Lo que ya no llega al cimiento cae; lo que llega, no. Es el modelo de Teardown: no hay analisis
-## de tensiones, solo alcance INDIRECTO hasta algo que no se puede caer.
+## Anything no longer connected to a foundation falls; anything still connected does not. This is
+## Teardown's model: no stress analysis, only an INDIRECT connection to something that cannot fall.
 ##
-## Una Shape del mapa entra con `anchored = false`, y una Shape no anclada que sigue siendo una sola
-## isla conectada salia de `_split_disconnected` sin mirar nada. Por eso las rejas, las secciones de
-## tuberia y las torres se quedaban flotando en Lee.
+## A map Shape starts with `anchored = false`, and an unanchored Shape that remains one connected
+## island used to leave `_split_disconnected` without any checks. That is why fences, pipe sections,
+## and towers remained suspended in Lee.
 ##
-## El caso decisivo es la cadena de tubos: cada seccion toca a sus vecinas, asi que preguntar solo
-## "toco algo?" las daba por apoyadas a todas. Hace falta seguir la cadena hasta el suelo.
+## The decisive case is a chain of pipes: each section touches its neighbors, so asking only "does
+## it touch anything?" treated them all as supported. The chain must be followed to the ground.
 ##
-## El ultimo escenario es la isla LEJOS del crater: `_split_disconnected` solo evaluaba las
-## componentes cercanas al impacto, asi que el trozo de pared sin uniones se quedaba soldado al aire
-## para siempre.
+## The final scenario is an island FAR from the crater: `_split_disconnected` used to inspect only
+## components near the impact, leaving a disconnected wall fragment suspended in the air forever.
 
 
 func _slab(world: VoxelWorld3D, position: Vector3, size: Vector3i,
@@ -27,21 +26,21 @@ func _slab(world: VoxelWorld3D, position: Vector3, size: Vector3i,
 	shape.data.set_cells(size, cells)
 	shape.palette = VoxelPalette.new()
 	shape.palette.set_material(1, {"color": Color.GRAY, "hardness": hardness, "density": 1000.0})
-	# Como las Shapes del mapa: sin anclas. Es la condicion que hacia que nada cayera.
+	# Like map Shapes: no anchors. This was the condition that kept everything from falling.
 	shape.anchored = false
 	body.add_voxel_shape(shape)
 	world.register_body(body)
 	return body
 
 
-## El fragmento nace en el origen y la altura vive en la Shape, no en el nodo.
+## The fragment is created at the origin; its height is stored in the Shape, not the node.
 static func _body_height(body: VoxelBody3D) -> float:
 	var shapes := body.get_shapes()
 	return shapes[0].world_bounds().get_center().y if not shapes.is_empty() else 0.0
 
 
-## Un muro con su base de roca en un extremo y un tramo suelto de ladrillo en el otro, sin nada en
-## medio: dos componentes desde el primer frame, separadas mucho mas que el radio del disparo.
+## A wall with a rock base at one end and a loose brick section at the other, with nothing between
+## them: two components from the first frame, much farther apart than the shot radius.
 func _island_wall(world: VoxelWorld3D) -> VoxelShape3D:
 	var shape := VoxelShape3D.new()
 	shape.data = VoxelShapeData.new()
@@ -74,49 +73,49 @@ func _island_wall(world: VoxelWorld3D) -> VoxelShape3D:
 
 
 func _run() -> void:
-	print("caida de lo que no toca nada")
+	print("unsupported components fall")
 	var world := make_world()
 
-	# Suelo de roca: el cimiento. Dureza 1e6 es lo que trae `rock` en la paleta de Teardown.
+	# Rock floor: the foundation. The Teardown palette assigns `rock` a hardness of 1e6.
 	var ground := _slab(world, Vector3(0.0, 0.0, 0.0), Vector3i(60, 4, 60), 1000000.0)
 	var resting := _slab(world, Vector3(0.0, 0.5, 0.0), Vector3i(8, 6, 8))
 	var floating := _slab(world, Vector3(1.5, 4.0, 0.0), Vector3i(24, 4, 24))
 	for _frame in 6:
 		await physics_frame
-	# El `RigidBody3D` es hijo del `VoxelBody3D` y las Shapes cuelgan de el: lo que se mueve es la
-	# Shape, no el nodo envoltorio.
+	# `RigidBody3D` is a child of `VoxelBody3D`, and the Shapes are children of the latter: the
+	# Shape moves, not its wrapper node.
 	var height := floating.get_shapes()[0].world_bounds().get_center().y
 	_check(ground.state == VoxelBody3D.State.STATIC
 		and resting.state == VoxelBody3D.State.STATIC
-		and floating.state == VoxelBody3D.State.STATIC, "las tres empiezan estaticas")
+		and floating.state == VoxelBody3D.State.STATIC, "all three start static")
 
-	# Un impacto cerca de la reja: es lo que dispara la comprobacion de apoyo.
-	# Un mordisco en una esquina: la reja sobrevive, que es lo que se quiere comprobar.
+	# An impact near the fence triggers the support check.
+	# A small hit in one corner: the fence survives, which is what this test checks.
 	world.damage_sphere(Vector3(0.6, 4.0, -0.9), 0.2, 20.0)
-	_check(floating.get_shapes()[0].voxel_count() > 0, "la reja sobrevive al mordisco")
-	_check(floating.state == VoxelBody3D.State.DYNAMIC, "la reja flotante pasa a dinamica")
-	_check(resting.state == VoxelBody3D.State.STATIC, "la losa apoyada en el suelo no se mueve")
-	_check(ground.state == VoxelBody3D.State.STATIC, "el suelo tampoco")
+	_check(floating.get_shapes()[0].voxel_count() > 0, "the fence survives the impact")
+	_check(floating.state == VoxelBody3D.State.DYNAMIC, "the unsupported fence becomes dynamic")
+	_check(resting.state == VoxelBody3D.State.STATIC, "the slab supported by the ground does not move")
+	_check(ground.state == VoxelBody3D.State.STATIC, "neither does the ground")
 
 	for _frame in 40:
 		await physics_frame
 	var fallen := height - floating.get_shapes()[0].world_bounds().get_center().y
-	print("  la reja bajo %.2f m" % fallen)
-	_check(fallen > 0.3, "y ademas cae de verdad")
-	# Cada escenario necesita un espacio limpio. Dejar la reja dinámica del primero en el mismo
-	# World3D hacía que golpeara y destruyera los tubos del siguiente mientras se preparaba el test.
+	print("  fence dropped %.2f m" % fallen)
+	_check(fallen > 0.3, "and it actually falls")
+	# Each scenario needs a clean space. Leaving the first scenario's dynamic fence in the same
+	# World3D made it hit and destroy the next scenario's pipes while the test was being set up.
 	world.queue_free()
 	await process_frame
 	await physics_frame
 
-	# La cadena de tubos: seis secciones seguidas que se tocan. La primera se apoya en el suelo, asi
-	# que la cadena entera esta sostenida; si se corta el enlace, el resto tiene que caer.
+	# Pipe chain: six consecutive, touching sections. The first is supported by the ground, so the
+	# entire chain is supported; if the connection is cut, the rest must fall.
 	var world2 := make_world()
-	# Un pilar de roca de 4,4 m y una tuberia en voladizo: solo la primera seccion toca el pilar, las
-	# otras cinco cuelgan en el aire y solo llegan al suelo por la cadena.
+	# A 4.4 m rock pillar and a cantilevered pipe: only the first section touches the pillar; the
+	# other five hang in the air and reach the ground only through the chain.
 	_slab(world2, Vector3(0.0, 0.0, 0.0), Vector3i(6, 44, 6), 1000000.0)
-	# La coalescencia puede absorber los Bodies authored antes de esta comprobación. Las Shapes son
-	# la identidad estable; su Body actual se resuelve al usarla, igual que hace gameplay.
+	# Coalescence may absorb the authored Bodies before this check. Shapes are
+	# is the stable identity; its current Body is resolved when used, as it is during gameplay.
 	var pipe_shapes: Array[VoxelShape3D] = []
 	for section in 6:
 		var pipe := _slab(world2, Vector3(0.55 + float(section) * 1.0, 2.0, 0.0),
@@ -129,9 +128,9 @@ func _run() -> void:
 		var pipe_owner := world2._body_of(pipe_shape)
 		all_static = all_static and pipe_owner != null \
 			and pipe_owner.state == VoxelBody3D.State.STATIC
-	_check(all_static, "la cadena de tubos apoyada en la roca se queda quieta")
+	_check(all_static, "the pipe chain supported by rock stays still")
 
-	# Se parte el tercer tubo: los tres de la punta pierden el camino al suelo.
+	# Split the third pipe: the three at the end lose their path to the ground.
 	var tail_shapes: Array[VoxelShape3D] = []
 	for section in range(3, 6):
 		tail_shapes.append(pipe_shapes[section])
@@ -144,18 +143,18 @@ func _run() -> void:
 		if owner_body != null and owner_body.state == VoxelBody3D.State.DYNAMIC:
 			tail_dynamic += 1
 			hosts[owner_body] = true
-	_check(tail_dynamic == 3, "los tubos de la punta caen al cortar la cadena (%d/3)" % tail_dynamic)
-	# Y caen juntos. Lo que la destruccion no ha separado sigue siendo una pieza: con un cuerpo por
-	# Shape, la cabeza de una torre se quedaba flotando mientras el mastil se iba.
-	_check(hosts.size() == 1, "como un solo cuerpo, no cada trozo por su lado (%d)" % hosts.size())
+	_check(tail_dynamic == 3, "the end pipes fall when the chain is cut (%d/3)" % tail_dynamic)
+	# They fall together. Anything destruction has not separated remains one piece; with one body per
+	# Shape, a tower head used to float while the mast fell.
+	_check(hosts.size() == 1, "as one body, not separate fragments (%d)" % hosts.size())
 	var root_pipe_owner := world2._body_of(pipe_shapes[0])
 	_check(root_pipe_owner != null and root_pipe_owner.state == VoxelBody3D.State.STATIC,
-		"el tubo que toca la roca sigue en su sitio")
+		"the pipe touching the rock remains in place")
 
-	# Lo mismo, pero lejos del origen. El test de contacto recibe la transformada relativa entre las
-	# dos Shapes, y construirla al reves da un resultado correcto cerca del origen y basura lejos: en
-	# Lee, una torre de 24 m a 70 m del centro no "tocaba" el suelo que tenia debajo ni con dos metros
-	# de margen, asi que ninguna prueba montada alrededor del origen lo habria visto.
+	# Repeat the test away from the origin. The contact test uses the relative transform between the
+	# two Shapes; constructing it incorrectly gives correct results near the origin and invalid
+	# results farther away. In Lee, a 24 m tower 70 m from the center did not "touch" the ground
+	# beneath it even with a 2 m margin, so a test near the origin would not catch this.
 	var world3 := make_world()
 	var far := Vector3(-3.9, 0.0, 70.9)
 	_slab(world3, far, Vector3i(20, 20, 20), 1000000.0)
@@ -163,22 +162,22 @@ func _run() -> void:
 	for _frame in 6:
 		await physics_frame
 	_check(mast.state == VoxelBody3D.State.STATIC,
-		"una torre lejos del origen se reconoce apoyada en la roca de debajo")
+		"a tower far from the origin is recognized as supported by the rock beneath it")
 	world3.damage_sphere(far + Vector3(0.0, 1.05, 0.0), 1.4, 1000000.0)
 	for _frame in 4:
 		await physics_frame
 	_check(mast.state == VoxelBody3D.State.DYNAMIC,
-		"y cae cuando se le vuela lo que la sostenia")
+		"and falls when its support is destroyed")
 
-	# Poste unificado y no anclado explícitamente, como los importados. La parte superior es mayor
-	# que la base: conservar "la componente más grande" dejaba arriba estático y soltaba precisamente
-	# el pie que aún tocaba el mundo. La raíz externa debe decidirlo al revés.
+	# Unified post without an explicit anchor, as imported posts are. The top is larger than the
+	# base: keeping "the largest component" left the top static and released the foot that still
+	# touched the world. The external root must determine support instead.
 	var world_post := make_world()
 	_slab(world_post, Vector3.ZERO, Vector3i(20, 4, 20), 1000000.0)
 	var post := _slab(world_post, Vector3(0.0, 0.8, 0.0), Vector3i(1, 12, 1))
 	var post_shape := post.get_shapes()[0]
-	# Shape separada que toca la punta, equivalente a la cabeza authored de la torre eléctrica. No
-	# está cerca del cráter y por eso debe propagarse desde el fragmento superior recién creado.
+	# Separate Shape touching the tip, equivalent to the authored head of the power tower. It is not
+	# near the crater, so support must propagate from the newly created upper fragment.
 	var post_head := _slab(world_post, Vector3(0.0, 1.5, 0.0), Vector3i(5, 2, 5))
 	var post_head_shape := post_head.get_shapes()[0]
 	var post_cut := world_post.damage_sphere(
@@ -186,16 +185,16 @@ func _run() -> void:
 	)
 	var post_fragments: Array = post_cut[0].new_bodies if not post_cut.is_empty() else []
 	_check(post.state == VoxelBody3D.State.STATIC and post_shape.voxel_count() == 3,
-		"la base pequeña del poste conserva su anclaje al suelo")
+		"the post's small base retains its ground anchor")
 	_check(post_fragments.size() == 1 \
 		and (post_fragments[0] as VoxelBody3D).get_total_voxels() == 58 \
 		and (post_fragments[0] as VoxelBody3D).state == VoxelBody3D.State.DYNAMIC,
-		"solo la sección superior sin ruta se vuelve dinámica")
+		"only the unsupported upper section becomes dynamic")
 	_check(world_post._body_of(post_head_shape) == post_fragments[0],
-		"la cabeza lejana se transfiere al mismo cuerpo que el tramo que la sostenía")
+		"the distant head transfers to the same body as its supporting section")
 
-	# Una Shape puede mezclar el material de raíz con la estructura que sostiene. Consultar una vez
-	# `es cimiento` y después destruir toda la roca no debe dejar esa respuesta cacheada para siempre.
+	# A Shape can contain both foundation material and the structure it supports. Checking once that
+	# it "is a foundation" and then destroying all the rock must not cache that answer forever.
 	var world_brick := make_world()
 	var brick_body := VoxelBody3D.new()
 	world_brick.add_child(brick_body)
@@ -218,21 +217,21 @@ func _run() -> void:
 	brick_body.add_voxel_shape(brick_shape)
 	world_brick.register_body(brick_body)
 	_check(world_brick._is_foundation(brick_shape),
-		"la base de roca de la torre de ladrillos se reconoce inicialmente")
+		"the rock base of the brick tower is initially recognized")
 	var root_center := brick_shape.voxel_center_world(1)
 	var brick_damage := world_brick.damage_sphere(root_center, 0.5, 1000000000.0)
 	var brick_fragments: Array = brick_damage[0].new_bodies \
 		if not brick_damage.is_empty() else []
 	_check(not world_brick._is_foundation(brick_shape),
-		"al borrar toda la roca se invalida la raíz cacheada")
+		"removing all rock invalidates the cached root")
 	_check(brick_fragments.size() == 1 \
 		and (brick_fragments[0] as VoxelBody3D).state == VoxelBody3D.State.DYNAMIC,
-		"la torre de ladrillos sin ninguna raíz cae en ese mismo impacto")
+		"the brick tower with no roots falls in that same impact")
 
-	# Un apoyo al que se le rompe el contacto, sin llegar a desaparecer. La cache de contactos es por
-	# Shape y la busqueda de cimiento corta en cuanto lo descubre, asi que el apoyo puede no tener
-	# entrada propia mientras la viga si lo tiene en la suya: le haces el boquete y la viga sigue
-	# creyendose apoyada hasta que otro impacto cualquiera le tira la cache.
+	# A support whose contact is broken without destroying it. The contact cache is per Shape, and
+	# the foundation search stops as soon as it finds one. The support may therefore have no cache
+	# entry of its own while the beam has one; after damaging it, the beam still considered itself
+	# supported until another impact cleared the cache.
 	var world4 := make_world()
 	_slab(world4, Vector3(0.0, 0.0, 0.0), Vector3i(40, 10, 40), 1000000.0)
 	var column := _slab(world4, Vector3(0.0, 1.05, 0.0), Vector3i(4, 20, 4))
@@ -240,38 +239,38 @@ func _run() -> void:
 	var beam_shape := beam.get_shapes()[0] as VoxelShape3D
 	for _frame in 6:
 		await physics_frame
-	_check(beam.state == VoxelBody3D.State.STATIC, "la viga sobre la columna se queda quieta")
-	# Un raspon en la punta de la viga, lejos de la columna: no rompe nada, pero deja la cache de
-	# contactos poblada, que es la situacion en la que aparecia el fallo.
+	_check(beam.state == VoxelBody3D.State.STATIC, "the beam above the column stays still")
+	# A scrape at the beam's tip, far from the column, breaks nothing but populates the contact cache,
+	# reproducing the conditions under which the bug appeared.
 	world4.damage_sphere(Vector3(1.35, 2.25, 0.0), 0.2, 60.0)
 	for _frame in 4:
 		await physics_frame
-	_check(beam.state == VoxelBody3D.State.STATIC, "y sigue quieta tras un raspon en su punta")
-	# Ahora se rompe el contacto columna-viga, sin tocar la viga y sin borrar la columna.
+	_check(beam.state == VoxelBody3D.State.STATIC, "it remains still after a scrape at its tip")
+	# Now break the column-beam contact without hitting the beam or removing the column.
 	var top := column.get_shapes()[0].world_bounds().end.y
-	# El centro queda suficientemente bajo para borrar toda la sección del pilar sin alcanzar los
-	# centros voxel de la viga: la prueba debe medir pérdida de soporte, no destruir el sujeto.
+	# The center is low enough to remove the entire pillar section without reaching the beam's voxel
+	# centers: this test must measure support loss, not destroy the subject.
 	world4.damage_sphere(Vector3(0.0, top - 0.35, 0.0), 0.38, 100.0)
 	for _frame in 4:
 		await physics_frame
-	print("  columna: quedan %d voxeles" % column.get_shapes()[0].voxel_count())
-	_check(column.get_shapes()[0].voxel_count() > 0, "la columna sigue ahi, solo sin su remate")
+	print("  column: %d voxels remain" % column.get_shapes()[0].voxel_count())
+	_check(column.get_shapes()[0].voxel_count() > 0, "the column is still there; only its cap is gone")
 	var beam_owner := world4._body_of(beam_shape)
 	_check(beam_owner != null and beam_owner.state == VoxelBody3D.State.DYNAMIC,
-		"y la viga cae en ese mismo disparo, no en el siguiente")
+		"the beam falls in that same shot, not the next one")
 
-	# La reserva de cajas de colision de un cuerpo que acaba de volverse dinamico se calcula sobre lo
-	# que esta DESPIERTO. Contando todos los dinamicos, los 632 props dormidos de Lee ya sumaban
-	# 13 761 cajas contra un techo de 8 192, asi que la reserva salia 1: una torre de 24 m caia
-	# convertida en una sola caja, que ni cae bien ni se puede tocar.
+	# Collision-box reservations for a newly dynamic body are calculated from awake bodies. Counting
+	# all dynamic bodies, Lee's 632 sleeping props already total 13,761 boxes against a limit of
+	# 8,192, reducing the reservation to 1: a 24 m tower fell as a single box, with incorrect physics
+	# and no usable interactions.
 	world4.compound_boxes = 20_000
 	world4.awake_compound_boxes = 0
 	_check(world4._box_allowance_for_new_body() == world4.physics_budget.max_boxes_per_body,
-		"un cuerpo que cae estrena colision con forma aunque los dormidos pasen del techo")
+		"a falling body gets detailed collision even when sleeping bodies exceed the limit")
 
-	# Más larga que el antiguo límite fail-open de 32 Shapes. Una búsqueda inconclusa no puede
-	# responder "soportado": la cadena entera carece de raíz y debe caer aunque el componente sea
-	# grande. Solo se explora esta isla nacida de la arista modificada, no el mapa completo.
+	# Longer than the old fail-open limit of 32 Shapes. An inconclusive search must not report
+	# "supported": the chain has no root and must fall even if the component is large. Explore only
+	# this island created by the modified edge, not the entire map.
 	var world5 := make_world()
 	var long_chain: Array[VoxelBody3D] = []
 	var long_chain_shapes: Array[VoxelShape3D] = []
@@ -291,55 +290,55 @@ func _run() -> void:
 			dynamic_sections += 1
 			long_chain_hosts[owner] = true
 	_check(dynamic_sections == 40,
-		"una cadena sin raíz de más de 32 Shapes cae completa (%d/40)" % dynamic_sections)
+		"an unrooted chain of more than 32 Shapes falls intact (%d/40)" % dynamic_sections)
 	_check(long_chain_hosts.size() == 1,
-		"la cadena larga usa un único RigidBody en vez de cuarenta (%d)" % long_chain_hosts.size())
+		"the long chain uses one RigidBody instead of forty (%d)" % long_chain_hosts.size())
 
-	# La reja de Lee: una barra authored que solo se sostiene metida en un pilar de roca. El jugador
-	# vuela el voxel de union y la reja se queda en el aire. El contacto se pregunta con un alcance de
-	# `ceil(CONTACT_MARGIN / voxel_size)` voxeles: con 0.12 sobre voxeles de 0.1 el alcance era DOS, o
-	# sea que una capa entera de aire entre las dos piezas seguia contando como union. Volar la union
-	# no soltaba nada porque nunca habia nada que soltar.
+	# Lee's fence: an authored bar supported only by being embedded in a rock pillar. The player
+	# destroys the connecting voxel and the fence remains suspended. Contact is queried with a range
+	# of `ceil(CONTACT_MARGIN / voxel_size)` voxels: at 0.12 for 0.1 m voxels, that range was TWO,
+	# meaning an entire layer of air between the pieces still counted as a connection. Destroying
+	# the connection released nothing because no disconnection was detected.
 	var world_fence := make_world()
 	_slab(world_fence, Vector3.ZERO, Vector3i(20, 4, 20), 1000000.0)
 	_slab(world_fence, Vector3(0.0, 2.2, 0.0), Vector3i(4, 40, 4), 1000000.0)
-	# Barra de 3 m pegada a la cara del pilar, a 3 m del suelo: su unico camino al cimiento es el pilar.
+	# A 3 m bar attached to the pillar face, 3 m above the ground: the pillar is its only path to the foundation.
 	var fence := _slab(world_fence, Vector3(1.7, 3.0, 0.0), Vector3i(30, 2, 2))
 	var fence_shape := fence.get_shapes()[0]
 	for _frame in 6:
 		await physics_frame
 	var fence_height := fence_shape.world_bounds().get_center().y
-	_check(fence.state == VoxelBody3D.State.STATIC, "la reja empotrada en el pilar se queda quieta")
-	# Se borra exactamente la columna de union (0,25 m), sin tocar el pilar de roca.
+	_check(fence.state == VoxelBody3D.State.STATIC, "the fence embedded in the pillar stays still")
+	# Remove exactly the connecting column (0.25 m) without touching the rock pillar.
 	world_fence.damage_sphere(Vector3(0.25, 3.0, 0.0), 0.11, 100.0)
 	for _frame in 4:
 		await physics_frame
 	var fence_owner := world_fence._body_of(fence_shape)
 	_check(fence_owner != null and fence_owner.state == VoxelBody3D.State.DYNAMIC,
-		"y cae al volarle la union, con el pilar todavia en pie")
+		"it falls when the connection is destroyed, while the pillar remains standing")
 	for _frame in 40:
 		await physics_frame
 	var fence_fallen := fence_height - fence_shape.world_bounds().get_center().y
-	print("  la reja bajo %.2f m" % fence_fallen)
-	_check(fence_fallen > 0.3, "cae de verdad, no solo de estado")
+	print("  fence dropped %.2f m" % fence_fallen)
+	_check(fence_fallen > 0.3, "it actually falls, not just changes state")
 
-	# Isla desconectada LEJOS del crater: el tramo suelto esta a 26 voxeles del disparo, muy fuera del
-	# alcance local que antes filtraba las componentes a reclasificar.
+	# Disconnected island FAR from the crater: the loose section is 26 voxels from the shot, well
+	# outside the local range previously used to filter components for reclassification.
 	var world_island := make_world()
 	var wall := _island_wall(world_island)
 	world_island.finalize_spatial_index()
 	for _frame in 5:
 		await physics_frame
-	_check(world_island.get_dynamic_bodies().is_empty(), "el muro con isla entra entero como estatica")
-	# Se raspa la roca: quita cimiento, asi que la clasificacion se dispara seguro.
+	_check(world_island.get_dynamic_bodies().is_empty(), "the wall with an island starts as one static body")
+	# Scrape the rock to remove foundation material and ensure classification runs.
 	world_island.damage_sphere(wall.voxel_center_world(0), 0.15, 1.0e6)
 	for _frame in 30:
 		await physics_frame
 		world_island._process(1.0 / 60.0)
 	var islands := world_island.get_dynamic_bodies()
-	_check(not islands.is_empty(), "el tramo lejano al crater se desprende en su propio cuerpo")
+	_check(not islands.is_empty(), "the section far from the crater detaches into its own body")
 	_check(is_instance_valid(wall) and wall.voxel_count() > 0,
-		"y la base sobre la roca se queda donde estaba")
+		"the base on the rock remains in place")
 	var island_heights: Array[float] = []
 	for body: VoxelBody3D in islands:
 		island_heights.append(_body_height(body))
@@ -351,11 +350,11 @@ func _run() -> void:
 		var body := islands[index]
 		if is_instance_valid(body) and island_heights[index] - _body_height(body) > 0.3:
 			fell += 1
-	_check(fell > 0, "la isla lejana cae de verdad, no se queda flotando")
+	_check(fell > 0, "the distant island actually falls instead of floating")
 	var snapshot: Dictionary = world_island._runtime_registry.get_coherence_snapshot()
-	print("  isla lejana: %d cuerpos, coherencia %s" % [islands.size(), snapshot.get("status", "?")])
+	print("  distant island: %d bodies, coherence %s" % [islands.size(), snapshot.get("status", "?")])
 	_check(String(snapshot.get("status", "")) != "DESYNC",
-		"ninguna Shape queda con colision desincronizada tras cambiar de cuerpo")
+		"no Shape has desynchronized collision after changing bodies")
 
 	if failures == 0:
 		print("VOXEL_UNSUPPORTED_DROP_SELFTEST_OK")

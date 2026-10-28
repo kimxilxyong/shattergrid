@@ -1,11 +1,11 @@
 class_name VoxelWaterSystem
 extends MeshInstance3D
-## Agua de mapa: todos los lagos y el mar se agrupan en un solo ArrayMesh y un solo material.
+## Map water: all lakes and the sea are combined into a single ArrayMesh and material.
 ##
-## No es un volumen voxel ni una segunda cámara. La superficie se rasteriza una vez y el shader
-## reutiliza color/profundidad de la escena para refracción, espuma y una reflexión SSR corta. La
-## textura de normales es periódica y se genera una vez al cargar; no depende de assets externos.
-## Su espectro evita ejes puros y simetrías de 90°, para que el tiling no parezca una cuadrícula.
+## This is not a voxel volume or a second camera. The surface is rasterized once, and the shader
+## reuses scene color/depth for refraction, foam, and a short SSR reflection. The normal texture is
+## periodic and generated once at load time; it does not depend on external assets. Its spectrum
+## avoids pure axes and 90-degree symmetry, so the tiling does not look like a grid.
 
 const NORMAL_TEXTURE_SIZE := 128
 const DEFAULT_COLOR := Color(0.018, 0.065, 0.072, 1.0)
@@ -14,8 +14,8 @@ const GROUP := "voxel_water"
 const SHORE_WIDTH := 0.48
 const RIPPLE_CAPACITY := 24
 const WATER_PHYSICS_INTERVAL := 1.0 / 30.0
-## Cada gota es un cubo de media escala de voxel, así que un chapuzón se lee por cantidad de
-## gotas y no por el tamaño de cada una — igual que el humo en `VoxelParticlePool`.
+## Each droplet is a cube half the size of a voxel, so a splash reads through the number of drops
+## rather than the size of each one—just like smoke in `VoxelParticlePool`.
 const SPLASH_DROP_SIZE := 0.05
 const MAX_SPLASH_DROPS := 72
 
@@ -62,8 +62,8 @@ func _init() -> void:
 	material_override = _material
 
 
-## Recibe puntos ya expresados en el espacio local de VoxelWorld3D. Devuelve falso solo cuando el
-## polígono no es triangulable; no deja una superficie a medias en los buffers compartidos.
+## Receives points already expressed in VoxelWorld3D's local space. Returns false only when the
+## polygon cannot be triangulated, avoiding a partially built surface in shared buffers.
 func add_polygon(
 	points: PackedVector3Array, color := DEFAULT_COLOR, visibility := DEFAULT_VISIBILITY,
 	ripples := 1.0, authored_depth := 0.0, authored_foam := 1.0
@@ -75,7 +75,7 @@ func add_polygon(
 		polygon_2d.append(Vector2(point.x, point.z))
 	var triangles := Geometry2D.triangulate_polygon(polygon_2d)
 	if triangles.size() < 3:
-		push_warning("VoxelWaterSystem: polígono de agua degenerado (%d vértices)" % points.size())
+		push_warning("VoxelWaterSystem: degenerate water polygon (%d vertices)" % points.size())
 		return false
 	var first_vertex := _vertices.size()
 	var ripple_amount := clampf(float(ripples), 0.0, 1.0)
@@ -85,13 +85,13 @@ func add_polygon(
 	for point in points:
 		_vertices.append(point)
 		_normals.append(Vector3.UP)
-		# UV de mundo: las ondas no cambian de fase al separar el mapa en varios polígonos.
+		# World-space UVs: wave phase does not change when the map is split into multiple polygons.
 		_uvs.append(Vector2(point.x, point.z) * 0.055)
 		_colors.append(Color(color.r, color.g, color.b, ripple_amount))
 		_uv2s.append(Vector2(depth_hint, attenuation_distance))
 	for index in triangles:
 		_indices.append(first_vertex + index)
-	# Área exacta de los triángulos en XZ para métricas y regresiones del importador.
+	# Exact XZ area of the triangles for importer metrics and regression tests.
 	for triangle in range(0, triangles.size(), 3):
 		var a := polygon_2d[triangles[triangle]]
 		var b := polygon_2d[triangles[triangle + 1]]
@@ -117,7 +117,7 @@ func add_polygon(
 	return true
 
 
-## Sube la malla una sola vez al terminar la importación. Tres superficies de Lee = un draw call.
+## Upload the mesh once import is complete. Lee's three surfaces = one draw call.
 func finish() -> void:
 	var built := ArrayMesh.new()
 	if not _vertices.is_empty():
@@ -136,7 +136,7 @@ func finish() -> void:
 	_setup_splash_particles()
 
 
-## Activa interacción física después de que el importador haya registrado todos los Bodies.
+## Enable physical interaction after the importer has registered all Bodies.
 func setup(world: VoxelWorld3D) -> void:
 	_world = world
 	if world != null and not world.body_unregistered.is_connected(_on_body_unregistered):
@@ -144,7 +144,7 @@ func setup(world: VoxelWorld3D) -> void:
 	set_physics_process(world != null and not _surface_records.is_empty())
 
 
-## Consulta barata equivalente a `IsPointInWater`: primero Rect2, después el polígono exacto.
+## Cheap equivalent of `IsPointInWater`: check Rect2 first, then the exact polygon.
 func sample_surface(world_point: Vector3) -> Dictionary:
 	var local := to_local(world_point) if is_inside_tree() else world_point
 	var horizontal := Vector2(local.x, local.z)
@@ -229,9 +229,9 @@ func _apply_body_water(body: VoxelBody3D, delta: float) -> void:
 			clampf(sqrt(maxf(rigid.mass, 1.0)) * rigid.linear_velocity.length() * 0.055, 0.4, 5.0)
 		)
 	_body_wet[key] = true
-	# Nada flota salvo el jugador, que nada por su cuenta en `player.gd`. Arquímedes sobre la caja
+	# Nothing floats except the player, who swims independently in `player.gd`. Buoyancy on the box
 	# exterior dejaba los escombros y las cajas haciendo corcho en la superficie del mapa entero:
-	# aquí un Body que cae al agua se hunde, y solo el drag le quita la velocidad de caída.
+	# here, a Body that falls into the water sinks; only drag reduces its downward velocity.
 	var velocity := rigid.linear_velocity
 	var drag_fraction := minf(0.82, submerged * delta * (1.4 + velocity.length() * 0.22))
 	rigid.apply_central_impulse(-velocity * rigid.mass * drag_fraction)
@@ -247,7 +247,7 @@ func emit_splash(position: Vector3, intensity := 1.0) -> void:
 		var horizontal := Vector3(cos(angle), 0.0, sin(angle))
 		var velocity := horizontal * _rng.randf_range(0.25, 1.1 + strength * 0.24) \
 			+ Vector3.UP * _rng.randf_range(1.4, 3.2 + strength * 0.48)
-		# Alineada a la rejilla de la gota, como cualquier cubo del mundo.
+		# Align to the droplet grid, like any cube in the world.
 		var spawn := (position + horizontal * _rng.randf_range(0.0, 0.22)) \
 			.snapped(Vector3.ONE * SPLASH_DROP_SIZE)
 		_splash_particles.emit_particle(
@@ -403,7 +403,7 @@ func _setup_splash_particles() -> void:
 	process.gravity = Vector3(0.0, -9.8, 0.0)
 	process.damping_min = 0.1
 	process.damping_max = 0.35
-	# Sin variación de escala: una gota mide lo que mide una gota, como un voxel mide un voxel.
+	# No scale variation: a drop has a fixed size, just as a voxel has a fixed size.
 	var ramp := Gradient.new()
 	ramp.offsets = PackedFloat32Array([0.0, 0.14, 0.82, 1.0])
 	ramp.colors = PackedColorArray([
@@ -414,9 +414,9 @@ func _setup_splash_particles() -> void:
 	ramp_texture.gradient = ramp
 	process.color_ramp = ramp_texture
 	_splash_particles.process_material = process
-	# Gotas billboard con alfa mezclado sobre un mundo de cubos: se veían como recortes planos y se
-	# reordenaban entre ellas. Ahora son cubos con normales, sombreados por la misma luz que el mapa,
-	# y se disuelven con el screen-door hasheado en vez de fundirse a nada.
+	# Billboard droplets with blended alpha over a world of cubes looked like flat cutouts and
+	# sorted inconsistently. They are now cubes with normals, shaded by the same light as the map,
+	# and dissolve using hashed screen-door transparency instead of fading to nothing.
 	var droplet := BoxMesh.new()
 	droplet.size = Vector3.ONE * SPLASH_DROP_SIZE
 	var material := StandardMaterial3D.new()
@@ -489,10 +489,10 @@ func configure_environment(sky_color: Color, sun_direction: Vector3, authored_su
 	))
 
 
-## Textura normal pequeña, repetible y determinista. Se compone como un espectro de oleaje oblicuo
-## con domain warp de baja frecuencia. Todas las frecuencias son enteras: sigue siendo tileable,
-## pero ya no aparecen los frentes cuadrados del antiguo cruce de tres senos. Se calcula una vez;
-## el coste por frame continúa siendo exactamente dos muestras de textura.
+## Small, repeatable, deterministic normal texture. It is composed as an oblique wave spectrum
+## with low-frequency domain warping. All frequencies are integers, so it remains tileable, but
+## avoids the square wavefronts from the previous crossing of three sine waves. It is calculated
+## once, and the per-frame cost remains exactly two texture samples.
 static func _make_wave_texture(size: int) -> ImageTexture:
 	var heights := PackedFloat32Array()
 	heights.resize(size * size)
@@ -506,8 +506,8 @@ static func _make_wave_texture(size: int) -> ImageTexture:
 		for x in size:
 			var u := float(x) / float(size)
 			var v := float(y) / float(size)
-			# El warp también es periódico en los bordes. Desplaza las crestas, no la textura UV en
-			# runtime, por lo que no añade lecturas ni ALU al shader del agua.
+			# The warp is also periodic at the edges. It shifts the crests, not the runtime UV texture,
+			# so it adds no reads or ALU to the water shader.
 			var warped_u := u + sin(TAU * (2.0 * u + v) + 0.73) * 0.022 \
 				+ sin(TAU * (u - 3.0 * v) + 2.41) * 0.011
 			var warped_v := v + sin(TAU * (-u + 2.0 * v) + 1.37) * 0.019 \

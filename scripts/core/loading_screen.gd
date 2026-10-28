@@ -1,12 +1,11 @@
 class_name LoadingScreen
 extends CanvasLayer
-## Pantalla de carga del mapa. La construye el propio script: son ocho nodos y así no hay que
-## mantenerlos también en `main.tscn`.
+## Map loading screen. It is built by the script from eight nodes, so it does not also need to be
+## maintained in `main.tscn`.
 ##
-## El importador es una sola llamada bloqueante, así que esta pantalla solo se ve si alguien le
-## cede frames al motor. Eso lo hace [TeardownMapImporter] con `await` entre etapas, y el coste de
-## esos frames se mide y sale en el informe como `progress_ms`: si algún día se vuelve un lastre,
-## se nota ahí.
+## The importer is a single blocking call, so this screen is visible only if something yields
+## frames to the engine. [TeardownMapImporter] does this with `await` between stages; the cost of
+## those frames is measured and reported as `progress_ms`, making any future overhead visible.
 
 var _title: Label
 var _detail: Label
@@ -19,7 +18,7 @@ var _high := 1.0
 
 func _init() -> void:
 	layer = 200
-	# El árbol se pausa mientras se importa; esta capa tiene que seguir viva para repintarse.
+	# The tree is paused during import; this layer must keep running so it can redraw.
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	var backdrop := ColorRect.new()
 	backdrop.color = Color(0.02, 0.035, 0.055, 1.0)
@@ -47,8 +46,8 @@ func _init() -> void:
 	content.add_theme_constant_override("separation", 12)
 	card.add_child(content)
 
-	content.add_child(_label("SHATTERGRID  /  CARGANDO MAPA", 14, Color(0.38, 0.86, 1, 1)))
-	_title = _label("Preparando…", 30, Color(0.94, 0.98, 1, 1))
+	content.add_child(_label("SHATTERGRID  /  LOADING MAP", 14, Color(0.38, 0.86, 1, 1)))
+	_title = _label("Preparing…", 30, Color(0.94, 0.98, 1, 1))
 	content.add_child(_title)
 
 	_bar = ProgressBar.new()
@@ -64,14 +63,14 @@ func _init() -> void:
 	content.add_child(_source)
 
 
-## Cada etapa informa de su propio 0..1; el tramo dice dónde cae eso en la barra global.
+## Each stage reports its own 0..1 progress; the range maps it to the global progress bar.
 func set_range(low: float, high: float) -> void:
 	_low = low
 	_high = high
 
 
-## Se pasa como `Callable` a cada etapa. `source` solo se manda cuando cambia: es la línea que dice
-## si el mapa sale del caché compilado o hay que construirlo desde cero.
+## Passed to each stage as a `Callable`. `source` is sent only when it changes; the line indicates
+## whether the map is loaded from the compiled cache or built from scratch.
 func report(fraction: float, label: String, source := "") -> void:
 	var overall := _low + (_high - _low) * clampf(fraction, 0.0, 1.0)
 	_title.text = label

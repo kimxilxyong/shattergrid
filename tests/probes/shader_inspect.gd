@@ -5,12 +5,12 @@ const SOURCE := "res://shaders/voxel/voxel_dda_dedicated.glsl"
 
 
 func _init() -> void:
-	# `load()` de un .glsl no compila el fuente: devuelve el RDShaderFile que dejó el importador. Si
-	# el .glsl se editó fuera del editor, esto valida la versión anterior y da un falso OK — pasó, y
-	# el juego se quedó sin dibujar un solo voxel porque el push constant del .res viejo medía 48
-	# bytes y el código ya empujaba 112. Arreglo: `godot --headless --import`.
-	# Se compara por md5 y no por fecha, que es el criterio del propio importador: reimportar no
-	# toca el .res si el contenido no cambió, así que la fecha da falsos positivos.
+	# `load()` on a .glsl file does not compile the source; it returns the RDShaderFile left by the
+	# importer. If the .glsl file was edited outside the editor, this validates the old version and
+	# gives a false OK—the game once stopped drawing every voxel because the old .res push constant
+	# was 48 bytes while the code already pushed 112. Fix: `godot --headless --import`.
+	# Compare by md5 rather than date, matching the importer's own logic: reimport does not update
+	# the .res if its content has not changed, so the timestamp produces false positives.
 	var prefix := SOURCE.get_file()
 	for file in DirAccess.get_files_at("res://.godot/imported"):
 		if file.begins_with(prefix) and file.ends_with(".md5"):
@@ -18,7 +18,7 @@ func _init() -> void:
 			var recorded := record.split('source_md5="')[-1].split('"')[0]
 			var actual := FileAccess.get_md5(SOURCE)
 			if recorded != actual:
-				print("DEDICATED_SHADER_STALE importado=%s fuente=%s — falta `godot --headless "
+				print("DEDICATED_SHADER_STALE imported=%s source=%s — missing `godot --headless "
 					% [recorded.left(8), actual.left(8)] + "--import`")
 				quit(1)
 	var shader_file: RDShaderFile = load(SOURCE)

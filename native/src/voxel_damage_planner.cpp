@@ -50,9 +50,9 @@ Dictionary VoxelDamagePlanner::damage_shape(const Ref<VoxelShapeData> &p_data,
     return result;
 }
 
-// Sin filtro de cercania al crater. Una isla desconectada lejos del impacto tampoco tiene ruta a
-// tierra, y saltarsela la dejaba soldada al aire para siempre: `_drop_unsupported` trabaja por
-// Shape, no por componente, asi que nadie volvia a mirarla.
+// No crater-proximity filter. An island disconnected far from the impact has no path to the
+// ground either; skipping it left it suspended forever. `_drop_unsupported` works per Shape, not
+// per component, so it would never be checked again.
 Array VoxelDamagePlanner::plan_detached_components(
         const Array &p_components, int p_particle_voxel_limit) const {
     Array result;

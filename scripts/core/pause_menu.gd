@@ -1,5 +1,5 @@
 extends CanvasLayer
-## Menú de pausa global. Procesa siempre para poder recibir la misma acción antes y durante la pausa.
+## Global pause menu. Always processes so it can receive the same action before and during a pause.
 
 @onready var _overlay: Control = $Overlay
 @onready var _resume_button: Button = $Overlay/Layout/MenuCard/Content/ResumeButton

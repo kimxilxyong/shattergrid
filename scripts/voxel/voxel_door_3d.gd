@@ -12,10 +12,10 @@ signal connection_broken(door: VoxelDoor3D, kind: String, position: Vector3)
 
 const BODY_META := &"voxel_door"
 const DEFAULT_JOINT_SIZE := 0.16
-## La geometría voxel de una puerta describe su envolvente visual, pero una puerta real es una hoja
-## hueca. El importador ya aplica la fracción de volumen de props; este límite por área es una
-## segunda defensa para puertas authored con `density` excepcional. Permanece en las Shapes mediante
-## `physical_fill_scale`, de modo que también se conserva después de daño y cambio de ownership.
+## A door's voxel geometry describes its visual envelope, but a real door is a hollow panel. The
+## importer already applies the prop volume fraction; this area-based limit is a second safeguard
+## for authored doors with exceptional `density`. It is stored on the Shapes through
+## `physical_fill_scale`, so it persists after damage and ownership changes.
 const MASS_PER_SQUARE_METER := 28.0
 const MIN_DOOR_MASS := 28.0
 const MAX_DOOR_MASS := 160.0
@@ -136,8 +136,8 @@ func _mark_latch_broken() -> void:
 	_latched = false
 	_latch_intact = false
 	if voxel_body != null and is_instance_valid(voxel_body):
-		# Quitar una constraint no garantiza que Jolt despierte un cuerpo que ya estaba dormido.
-		# Sin este wake la hoja seguía exactamente en la pose de pared aunque la chapa hubiese volado.
+		# Removing a constraint does not guarantee that Jolt will wake an already sleeping body.
+		# Without this wake, the panel stayed exactly in its wall pose after the latch was destroyed.
 		voxel_body.wake_for_interaction()
 	_begin_frame_clearance()
 	latch_changed.emit(self, false)
@@ -165,8 +165,8 @@ func _on_voxel_impact(center: Vector3, _removed_voxels: int, blast_radius: float
 		_mark_fully_released(center)
 
 
-## También cubre roturas por separación/fuerza, donde no existe `voxel_impact`. Es puntual: una
-## puerta quieta no ejecuta ningún sondeo por frame.
+## Also handles breaks from separation/force, where there is no `voxel_impact`. It is event-driven:
+## a stationary door performs no per-frame polling.
 func _on_joint_record_broken(record: Dictionary) -> void:
 	if record == latch_record:
 		_mark_latch_broken()
@@ -201,11 +201,11 @@ func _mark_fully_released(impact_center: Vector3) -> void:
 	_nudge_after_joint_removal(impact_center)
 
 
-## Mientras el latch vive, Joint3D excluye solo el `JoltBody` estático raíz. La colisión real del
-## mapa está en shards hermanos, por lo que la hoja nace tocando cuatro colliders del marco y Jolt
-## cancela todo el par de apertura. Al romperse la chapa se excluyen únicamente los Bodies unidos
-## a esa puerta; al superar 12 grados ya existe holgura y se restauran para que la pared vuelva a
-## detenerla. Solo una puerta en esta transición procesa física.
+## While the latch is live, Joint3D excludes only the root static `JoltBody`. Actual map collision
+## is on sibling shards, so the panel starts touching four frame colliders and Jolt cancels all
+## opening torque. When the latch breaks, exclude only the Bodies connected to that door; after it
+## passes 12 degrees there is enough clearance, so restore those collisions and let the wall stop
+## it again. Only a door in this transition processes physics.
 func _begin_frame_clearance() -> void:
 	if _fully_released or _rigid == null or not is_instance_valid(_rigid) \
 			or hinge_records.size() < 2:
@@ -239,8 +239,8 @@ func _physics_process(_delta: float) -> void:
 	if _frame_clearance_angle() >= deg_to_rad(FRAME_CLEARANCE_ANGLE):
 		_end_frame_clearance()
 	elif not held and _rigid != null and _rigid.sleeping:
-		# La excepción permanece, pero una puerta rota que nadie está moviendo no tiene que sondear
-		# para siempre. `begin_grab()` sincroniza cualquier shard nuevo y reactiva este proceso.
+		# Keep the exception, but do not poll forever for a broken door no one is moving.
+		# `begin_grab()` syncs any new shards and reactivates this process.
 		set_physics_process(false)
 
 
@@ -288,14 +288,14 @@ func _end_frame_clearance() -> void:
 	set_physics_process(false)
 
 
-## Una hoja vertical sin constraints puede quedar en equilibrio exacto, apretada por las colisiones
-## del marco y apoyada sobre el piso. El golpe que destruye el último soporte le entrega una
-## velocidad horizontal máxima de 12 cm/s: suficiente para salir de ese mínimo estático, muy por
-## debajo de una explosión. Durante dos ticks no choca con el marco antiguo: es la misma ventana de
-## handoff usada por los fragmentos estático->dinámico, aquí acotada a una única hoja y 33 ms.
+## A vertical panel without constraints can remain in exact equilibrium, squeezed by frame
+## collisions and resting on the floor. The hit that destroys the last support gives it a maximum
+## horizontal speed of 12 cm/s: enough to escape static equilibrium, far below an explosion.
+## For two ticks it does not collide with the old frame, using the same handoff window as
+## static-to-dynamic fragments, bounded here to one panel and 33 ms.
 func _nudge_after_joint_removal(impact_center: Vector3) -> void:
-	# `queue_free()` retira el Joint al final del frame. Aplicar el impulso antes hacía que la propia
-	# constraint que acabábamos de romper lo absorbiera entero y la puerta volviera a velocidad cero.
+	# `queue_free()` removes the Joint at the end of the frame. Applying the impulse earlier let the
+	# constraint we had just broken absorb all of it, returning the door to zero velocity.
 	await get_tree().physics_frame
 	if not is_instance_valid(self) or not _fully_released:
 		return
@@ -320,8 +320,8 @@ func _nudge_out_of_frame(impact_center: Vector3) -> void:
 		direction = Vector3.FORWARD
 	var impulse := direction.normalized() * minf(released_rigid.mass * 0.12, 260.0)
 	released_rigid.apply_central_impulse(impulse)
-	# El componente angular inclina la hoja fuera de su equilibrio vertical. Se aplica alrededor del
-	# eje horizontal que va del soporte destruido al centro, no alrededor de la antigua bisagra.
+	# The angular component tips the panel out of vertical equilibrium. Apply it around the
+	# horizontal axis from the destroyed support to the center, not around the former hinge.
 	released_rigid.apply_torque_impulse(
 		direction.normalized() * minf(released_rigid.mass * 0.22, 420.0)
 	)
@@ -334,9 +334,9 @@ func _nudge_out_of_frame(impact_center: Vector3) -> void:
 		released_rigid.sleeping = false
 
 
-## VoxelJoints es el dueño normal de esta transición porque también libera las retenciones de los
-## dos endpoints y los retira del índice. El fallback solo cubre pruebas/escenas sintéticas que no
-## instalaron el gestor; aun allí se mantiene la misma invariante de despertar y soltar holds.
+## VoxelJoints normally owns this transition because it also releases holds on both endpoints and
+## removes them from the index. The fallback covers only synthetic tests/scenes without the
+## manager; even there, the same invariant of waking and releasing holds is maintained.
 func _break_record(record: Dictionary) -> bool:
 	if _joints != null and is_instance_valid(_joints):
 		return _joints.break_record(record)
@@ -358,8 +358,8 @@ func _break_record(record: Dictionary) -> bool:
 func _refresh_physics_hold() -> void:
 	if voxel_body == null or not is_instance_valid(voxel_body) or _physics_hold_key.is_empty():
 		return
-	# Los joints authored ya mantienen los dos endpoints mediante VoxelJoints. Esta retención extra
-	# solo cubre el agarre interactivo y se libera al soltar la puerta.
+	# Authored joints already hold both endpoints through VoxelJoints. This additional hold is only
+	# for interactive grabbing and is released when the door is let go.
 	if held:
 		voxel_body.acquire_physics_hold(_physics_hold_key)
 	else:
@@ -457,9 +457,9 @@ static func _body_has_material_near(body: VoxelBody3D, point: Vector3, radius: f
 		if not shape.world_bounds().grow(radius).has_point(point):
 			continue
 		var voxel := shape.world_to_voxel(point)
-		# Un voxel cuenta si su cubo toca la esfera del joint, no por pertenecer al cubo AABB de la
-		# búsqueda. El test anterior aceptaba hasta las esquinas diagonales y dejaba una chapa viva
-		# aunque visualmente ya no quedara material junto al anclaje.
+		# A voxel counts if its cube touches the joint sphere, not merely because it belongs to the
+		# AABB cube being searched. The previous test accepted diagonal corners and left a live panel
+		# even if no material was still visibly present next to the anchor.
 		var half_diagonal := shape.voxel_size * sqrt(3.0) * 0.5
 		var effective_radius := radius + half_diagonal
 		var reach := maxi(1, ceili(effective_radius / shape.voxel_size))
@@ -487,8 +487,8 @@ static func _body_has_material_near(body: VoxelBody3D, point: Vector3, radius: f
 static func _record_joint_is_live(record: Dictionary) -> bool:
 	if record.is_empty() or bool(record.get("broken", false)):
 		return false
-	# Un Node en `queue_free` puede seguir guardado como Variant hasta el fin del frame. Comprobarlo
-	# antes del cast tipado evita que una unión retirada ensucie cada tick con "freed instance".
+	# A Node queued with `queue_free` may remain stored as a Variant until the end of the frame.
+	# Check it before the typed cast to prevent a removed joint from logging "freed instance" every tick.
 	var joint_variant: Variant = record.get("joint")
 	if not is_instance_valid(joint_variant):
 		return false

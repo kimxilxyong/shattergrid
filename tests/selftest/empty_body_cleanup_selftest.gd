@@ -1,9 +1,9 @@
 extends "res://tests/selftest/selftest.gd"
-## Un Body sin voxeles no puede conservar masa, compound ni referencias en el World.
+## A Body with no voxels must not retain mass, a compound shape, or references in the World.
 
 
 func _run() -> void:
-	print("limpieza de Bodies físicos vacíos")
+	print("empty physics Body cleanup")
 	var world := make_world(false)
 	var body := VoxelBody3D.new()
 	body.state = VoxelBody3D.State.DYNAMIC
@@ -21,17 +21,17 @@ func _run() -> void:
 	body.add_voxel_shape(shape)
 	world.register_body(body)
 	_check(body.compound_boxes > 0 and body.get_total_voxels() == 8,
-		"el fixture empieza como Body físico real")
+		"the fixture starts as a real physics Body")
 	var affected := world.damage_sphere(shape.world_bounds().get_center(), 1.0, 100.0)
-	_check(not affected.is_empty(), "el impacto vacía la Shape dinámica")
+	_check(not affected.is_empty(), "the impact empties the dynamic Shape")
 	_check(not world.get_dynamic_bodies().has(body),
-		"la transacción desregistra el Body vacío inmediatamente")
+		"the transaction unregisters the empty Body immediately")
 	await process_frame
 	_check(not is_instance_valid(body),
-		"el nodo con masa y compound antiguos sale del árbol")
+		"the node with the old mass and compound is removed from the tree")
 
-	# Barrera defensiva: un escritor futuro puede registrar accidentalmente un Body ya vacío. La
-	# actualización de métricas debe repararlo sin contarlo como física activa.
+	# Defensive guard: future code might accidentally register an already-empty Body. Metrics
+	# updates must repair it without counting it as active physics.
 	var stale := VoxelBody3D.new()
 	stale.state = VoxelBody3D.State.DYNAMIC
 	world.add_child(stale)
@@ -43,7 +43,7 @@ func _run() -> void:
 	world.register_body(stale)
 	world._update_metrics()
 	_check(not world.get_dynamic_bodies().has(stale),
-		"la barrera de métricas elimina también un fantasma inyectado")
+		"the metrics barrier also removes an injected ghost")
 
 	if failures == 0:
 		print("VOXEL_EMPTY_BODY_CLEANUP_SELFTEST_OK")

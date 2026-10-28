@@ -64,11 +64,10 @@ layout(set = 0, binding = 11) uniform usampler3D clip_dynamic_1;
 layout(set = 0, binding = 12) uniform usampler3D clip_dynamic_2;
 layout(set = 0, binding = 13) uniform usampler3D clip_dynamic_3;
 
-// El volumen de sombras es fijo y cubre el mapa entero: los cuatro niveles comparten esquina y solo
-// se diferencian en el tamano de celda. Antes cada nivel llevaba su propio origen porque se
-// desplazaba con la camara.
-//   origin_enabled: xyz = esquina del volumen en metros, w = 1 si hay sombras
-//   level_size_cell: xyz = tamano del nivel en celdas, w = metros por celda
+// The shadow volume is fixed and covers the entire map: the four levels share a corner and differ
+// only in cell size. Previously, each level had its own origin because it moved with the camera.
+//   origin_enabled: xyz = volume corner in meters, w = 1 if shadows are enabled
+//   level_size_cell: xyz = level size in cells, w = meters per cell
 layout(set = 0, binding = 14, std140) uniform ShadowClipmapBlock {
 	vec4 origin_enabled;
 	vec4 level_size_cell[4];
@@ -95,15 +94,15 @@ layout(set = 0, binding = 23, std140) uniform LocalShadowBlock {
 	vec4 options;
 } local_shadow_block;
 
-// Tabla `macrocelda -> brick` de todas las Shapes, una detrás de otra. El atlas de voxeles no
-// guarda el volumen completo de cada Shape sino solo los bricks de 8x8x8 que tienen algo dentro:
-// `macro_dimensions_padding.w` dice dónde empieza el tramo de esta Shape y -1 marca el hueco.
+// Table `macrocell -> brick` for all Shapes, stored consecutively. The voxel atlas stores only
+// occupied 8x8x8 bricks for each Shape, not its full volume:
+// `macro_dimensions_padding.w` gives the start of this Shape's range, and -1 marks an empty slot.
 layout(set = 0, binding = 24, std430) readonly buffer BrickSlots {
 	int brick_slots[];
 };
 
-// 112 de los 128 bytes que Vulkan garantiza para push constants. Queda un vec4 de margen; pasado
-// eso hay que mover la iluminación a un UBO propio.
+// Uses 112 of the 128 bytes Vulkan guarantees for push constants. One vec4 remains; beyond that,
+// lighting needs to move to its own UBO.
 layout(push_constant, std430) uniform Params {
 	vec4 raster_view_nodes;
 	vec4 render_options;
@@ -147,8 +146,8 @@ float box_near_distance(
 }
 
 
-// Estatico y dinamico van fusionados en el mismo volumen, asi que aqui solo queda una lectura por
-// muestra en vez de dos mas un OR. Los samplers `clip_dynamic_*` apuntan a estas mismas texturas.
+// Static and dynamic data are merged into the same volume, so each sample needs only one read
+// instead of two reads and an OR. The `clip_dynamic_*` samplers point to these same textures.
 uint clipmap_fetch(int level, ivec3 packed_cell) {
 	if (level == 0) return texelFetch(clip_static_0, packed_cell, 0).r;
 	if (level == 1) return texelFetch(clip_static_1, packed_cell, 0).r;
@@ -157,13 +156,13 @@ uint clipmap_fetch(int level, ivec3 packed_cell) {
 }
 
 
-// Todos los niveles cubren el mismo trozo de mundo, asi que el nivel ya no se elige por "cual me
-// contiene" sino directamente por la distancia recorrida: se pide el que toca y punto. Fuera del
-// volumen no hay geometria, asi que no hay oclusion.
+// All levels cover the same region of the world, so select a level directly by distance traveled
+// rather than by "which one contains me." Outside the volume there is no geometry and therefore no
+// occlusion.
 //
-// Aqui ya no hay eleccion estocastica entre niveles. La habia para disimular la costura donde
-// acababa un clipmap y empezaba el siguiente, y decia apoyarse en TAA para integrar el ruido — pero
-// el proyecto no tenia TAA, asi que era ruido puro. Sin clipmaps no hay costura que disimular.
+// There is no longer any stochastic selection between levels. It was used to hide the seam where
+// one clipmap ended and the next began, supposedly relying on TAA to integrate the noise—but the
+// project had no TAA, so it was pure noise. Without clipmaps, there is no seam to hide.
 bool clipmap_occupied(vec3 world_position, int level, out float selected_cell_size) {
 	vec3 origin = shadow_clipmap.origin_enabled.xyz;
 	float cell_size = shadow_clipmap.level_size_cell[level].w;
@@ -179,18 +178,18 @@ bool clipmap_occupied(vec3 world_position, int level, out float selected_cell_si
 }
 
 
-// Trazado jerarquico, al estilo del "super sparse voxel tracing" de Teardown: se empieza por el mip
-// mas grueso y solo se baja de nivel cuando ese nivel dice que hay algo delante.
+// Hierarchical tracing, following Teardown's "super sparse voxel tracing": start at the coarsest
+// mip and descend only when that level reports something ahead.
 //
-// Antes se elegia el nivel por una tabla de distancias fijas y se avanzaba siempre 5 celdas. Eso
-// tenia dos problemas a la vez. Uno de calidad: un paso de 0,5 m atraviesa una pared de un voxel sin
-// verla, que es por lo que las sombras "no se notaban". Y otro de coste: los rayos que van a cielo
-// abierto pagaban lecturas del nivel 0, que ocupa 133 MB y no entra en la cache de texturas de la
-// GPU; medido, el frame se iba a 17 ms segun hacia donde mirases.
+// Previously, the level was selected from a fixed-distance table and the ray always advanced five
+// cells. This caused two problems. First, quality: a 0.5 m step passed through a one-voxel wall
+// without seeing it, which made the shadows "unnoticeable." Second, cost: rays toward open sky still
+// read level 0, which occupies 133 MB and does not fit in the GPU texture cache; measured frame time
+// reached 17 ms depending on where you looked.
 //
-// Aqui un rayo despejado se resuelve leyendo el nivel 3, que son 0,3 MB y cabe entero en cache, y
-// solo baja al volumen grande cuando de verdad se acerca a algo. Y al bajar, el paso es de una celda
-// del nivel en el que esta, asi que cerca de la geometria son pasos de 0,2 m y ya no se cuela nada.
+// Here, a clear ray is resolved by reading level 3, which is 0.3 MB and fits entirely in cache; it
+// descends to the large volume only when it actually approaches something. When descending, the
+// step is one cell at that level, so steps near geometry are 0.2 m and nothing is missed.
 float trace_sun_shadow(vec3 world_hit, vec3 normal, vec3 light_direction) {
 	if (shadow_clipmap.origin_enabled.w < 0.5) return 1.0;
 	vec3 ray_origin = world_hit + normal * 0.06;
@@ -199,14 +198,14 @@ float trace_sun_shadow(vec3 world_hit, vec3 normal, vec3 light_direction) {
 	for (int step = 0; step < 40; step++) {
 		float cell_size;
 		if (clipmap_occupied(ray_origin + light_direction * distance_along_ray, level, cell_size)) {
-			// Ocupado en el nivel fino es sombra de verdad. En un nivel grueso solo significa "hay
-			// algo en esta celda gorda": se baja y se vuelve a mirar el mismo punto, sin avanzar.
+			// Occupied at the fine level means a real shadow. At a coarse level it only means
+			// "something is in this large cell": descend and check the same point again without advancing.
 			if (level == 0) return 0.28;
 			level--;
 			continue;
 		}
-		// Vacio: se avanza una celda de este nivel y se intenta subir. Si arriba tambien esta vacio
-		// el rayo vuelve a dar zancadas largas y baratas.
+		// Empty: advance one cell at this level and try to ascend. If the level above is also empty,
+		// the ray can take long, inexpensive steps again.
 		distance_along_ray += shadow_clipmap.level_size_cell[level].w;
 		level = min(level + 1, 3);
 		if (distance_along_ray > 80.0) break;
@@ -273,20 +272,20 @@ vec3 entry_normal(vec3 point, vec3 direction, vec3 volume_size) {
 }
 
 
-// Fase del eslabón dentro del bucle de la oruga, en [0,1), o -1.0 si la celda no es banda animada.
-// El decoder guarda las celdas como (largo, alto, lateral): el perfil vive en XY y Z solo dice qué
-// oruga es. El desenrollado va por dirección desde el centro del perfil, no por "el borde más cercano
-// de la caja": en morro y culata el anillo es una curva y allí ninguna celda está cerca de un borde
-// recto, así que el criterio anterior saltaba de tramo y el patrón parecía correr de lado.
+// Track-link phase within the loop, in [0,1), or -1.0 if the cell is not an animated track.
+// The decoder stores cells as (length, height, lateral): the profile occupies XY, and Z identifies
+// the track. Unwrap by direction from the profile center, not by "the nearest box edge": at the
+// front and rear, the ring is curved and no cell is near a straight edge, so the previous method
+// jumped between segments and made the pattern appear to slide sideways.
 float surface_link_phase(ShapeData shape, uint material, vec3 cell) {
 	vec4 animation = shape.surface_animation;
 	if (animation.w < 0.5 || material != uint(round(animation.z))) return -1.0;
 	vec3 track_min = shape.surface_bounds_min.xyz;
 	vec3 track_max = shape.surface_bounds_max.xyz;
 	if (any(lessThan(cell, track_min)) || any(greaterThanEqual(cell, track_max))) return -1.0;
-	// Longitud de arco sobre el octógono del perfil. Un mapeo por dirección desde el centro sería más
-	// corto, pero estira los eslabones en morro y culata: allí el borde está lejos del centro y el
-	// mismo tramo de parámetro cubre el doble de celdas. Con arco real el paso es uniforme en toda la
+	// Arc length along the profile octagon. Mapping by direction from the center would be shorter,
+	// but stretches the links at the front and rear: there, the edge is farther from the center and
+	// the same parameter interval covers twice as many cells. True arc length keeps spacing uniform
 	// vuelta.
 	vec2 extent = (track_max.xy - track_min.xy) * 0.5 - 0.5;
 	float chamfer = shape.surface_bounds_max.w;
@@ -312,17 +311,17 @@ float surface_link_phase(ShapeData shape, uint material, vec3 cell) {
 			? p.x + (extent.x - chamfer)
 			: flat_x + 2.0 * diagonal + flat_y + ((extent.x - chamfer) - p.x);
 	}
-	// El perímetro rara vez es múltiplo exacto del paso del eslabón. Redondear el número de eslabones
-	// y repartirlos sobre el perímetro cierra el bucle sin junta partida.
+	// The perimeter is rarely an exact multiple of the link spacing. Rounding the link count and
+	// distributing the links around the perimeter closes the loop without a broken seam.
 	float links = max(round(perimeter / max(shape.surface_bounds_min.w, 1.0)), 1.0);
 	float offset = cell.z < (track_min.z + track_max.z) * 0.5 ? animation.x : animation.y;
 	return fract((s + offset) / perimeter * links);
 }
 
 
-// Solo la capa exterior del anillo puede vaciarse: por dentro está hueco, y quitar las dos celdas del
-// grosor abriría un agujero que se ve al otro lado del tanque. El perfil de la banda es un octágono
-// (extremos achaflanados a 45°), así que su distancia con signo sale de tres semiplanos.
+// Only the outer ring layer can be emptied: the inside is hollow, and removing both thickness
+// layers would create a hole visible through the tank. The track profile is an octagon (ends
+// chamfered at 45 degrees), so its signed distance comes from three half-planes.
 bool surface_link_outer_shell(ShapeData shape, vec3 cell) {
 	vec3 track_min = shape.surface_bounds_min.xyz;
 	vec3 track_max = shape.surface_bounds_max.xyz;
@@ -336,7 +335,7 @@ bool surface_link_outer_shell(ShapeData shape, vec3 cell) {
 }
 
 
-// Fracción del paso ocupada por el eslabón: el resto es el hueco que se vacía y viaja con la banda.
+// Fraction of the spacing occupied by a link; the remainder is the gap that moves with the track.
 const float SURFACE_LINK_DUTY = 0.75;
 
 
@@ -391,7 +390,7 @@ bool trace_shape(
 	hit_normal_local_out = vec3(0.0);
 	steps_taken = 0;
 	int max_steps = int(params.render_options.x);
-	// El brick solo cambia cada ocho celdas: se recuerda para no releer la tabla en cada paso.
+	// The brick changes only every eight cells; cache it to avoid rereading the table at each step.
 	ivec3 cached_macro = ivec3(-1);
 	ivec3 brick_origin = ivec3(0);
 
@@ -408,11 +407,11 @@ bool trace_shape(
 			);
 			vec3 macro_side_t = (macro_boundary - ray_origin) / safe_direction;
 			float macro_t = min(macro_side_t.x, min(macro_side_t.y, macro_side_t.z));
-			// La cara por la que se sale de la macrocelda vacía es la misma por la que se entra en la
-			// siguiente, así que es la normal que le toca al voxel de después. Sin esto ese voxel
+			// The face used to leave the empty macrocell is also the one used to enter the next, so
+			// it is the correct normal for the next voxel. Without this, that voxel
 			// hereda la normal de la entrada al volumen: en el terreno de Lee, que va al 8 % de
-			// relleno, el rayo cruza macroceldas vacías y cae de golpe sobre la superficie, que salía
-			// sombreada plana — láminas grises con los bordes rectos de la macrocelda.
+			// is filled, the ray crosses empty macrocells and suddenly hits the surface, which looked
+			// flat-shaded—gray sheets with the straight edges of the macrocells.
 			if (macro_t == macro_side_t.x) {
 				hit_normal_local = vec3(-float(step_direction.x), 0.0, 0.0);
 			} else if (macro_t == macro_side_t.y) {
@@ -435,7 +434,7 @@ bool trace_shape(
 			cached_macro = macro_cell;
 			int slot = brick_slots[table_base + macro_cell.x
 				+ macro_dimensions.x * (macro_cell.y + macro_dimensions.y * macro_cell.z)];
-			// La macrocelda ya dio ocupada, así que el brick existe; si no, la Shape no está subida.
+			// The macrocell is occupied, so the brick exists; otherwise, the Shape has not been uploaded.
 			if (slot < 0) break;
 			brick_origin = ivec3(
 				slot % brick_grid.x,
@@ -444,9 +443,9 @@ bool trace_shape(
 			) * 8;
 		}
 		material_index = texelFetch(voxel_texture, brick_origin + (cell & ivec3(7)), 0).r;
-		// Los eslabones se vacían de verdad en lugar de pintarse encima: la fase decide qué celdas de
-		// la capa exterior faltan, así que el hueco viaja con la banda y la oruga tiene relieve. Es
-		// geometría de render, no del volumen: la física y la destrucción no se enteran.
+		// Links are actually cut out instead of painted on top: phase determines which outer-layer
+		// cells are missing, so the gap moves with the track and gives it depth. This is render
+		// geometry, not volume geometry; physics and destruction are unaffected.
 		vec3 link_cell = vec3(cell) + vec3(0.5);
 		if (material_index != 0u
 			&& surface_link_phase(shape, material_index, link_cell) > SURFACE_LINK_DUTY
@@ -611,8 +610,8 @@ void main() {
 	if (best_shape_index >= 0) {
 		float link_phase = surface_link_phase(shapes[best_shape_index], best_material, best_cell);
 		if (link_phase >= 0.0) {
-			// El hueco ya lo quita la travesía; aquí solo se oscurece el borde contiguo para que la
-			// ranura se lea con luz plana, y el fondo del hueco (capa interior) quede en sombra.
+			// Traversal already removes the gap; here, only darken the adjacent edge so the slot
+			// reads clearly under flat lighting, while the gap's bottom (inner layer) remains shadowed.
 			albedo *= mix(
 				0.45, 1.15,
 				smoothstep(0.0, 0.22, min(link_phase, SURFACE_LINK_DUTY - link_phase))
@@ -622,9 +621,9 @@ void main() {
 	float roughness = clamp(material_properties.r, 0.02, 1.0);
 	float metallic = clamp(material_properties.g, 0.0, 1.0);
 	float emission = material_properties.b * 32.0;
-	// El sol lo pone la escena: dirección, color y energía salen del skybox importado, igual que en
-	// Teardown, que saca la dirección del píxel más brillante del HDRI. Antes estaba clavado a
-	// (-0.45, 0.82, 0.35) — 55° de elevación, mediodía — sin relación con el cielo que se dibuja.
+	// The scene supplies the sun: direction, color, and energy come from the imported skybox, as in
+	// Teardown, which takes its direction from the HDRI's brightest pixel. Previously it was fixed
+	// at (-0.45, 0.82, 0.35)—55 degrees elevation, noon—with no relation to the sky being rendered.
 	vec3 light_direction = params.sun_direction_energy.xyz;
 	vec3 sun_light = params.sun_color.rgb * params.sun_direction_energy.w;
 	float diffuse = max(dot(best_normal, light_direction), 0.0);
@@ -636,10 +635,10 @@ void main() {
 		* (1.0 - roughness * 0.65);
 	vec3 fresnel_zero = mix(vec3(0.04), albedo, metallic);
 	vec3 diffuse_color = albedo * (1.0 - metallic * 0.78);
-	// Ambiente de hemisferio en vez de la constante `albedo * 0.30` que había: el cielo por arriba
-	// y el rebote del suelo por abajo, ambos promediados del propio skybox. Con una sola constante
-	// una cara mirando al cielo y el techo de un soportal salían idénticas, y de ahí que todo se
-	// viera plano — bastante más que por la falta de sombras.
+	// Hemispheric ambient light replaces the previous `albedo * 0.30` constant: both the sky above
+	// and ground bounce below are averaged from the skybox itself. With a single constant, a face
+	// toward the sky and a porch roof looked identical, making everything appear flat—far more than
+	// the lack of shadows did.
 	vec3 ambient = mix(
 		params.ambient_ground.rgb, params.ambient_sky.rgb, best_normal.y * 0.5 + 0.5
 	);

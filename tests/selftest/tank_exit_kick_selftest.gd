@@ -1,10 +1,10 @@
 extends "res://tests/selftest/selftest.gd"
-## Regresión: bajarse del vehículo no puede empujarlo.
+## Regression: exiting a vehicle must not push it.
 ##
-## La cápsula del jugador viaja pegada al asiento, dentro del casco, con la colisión apagada. Si al
-## salir se le devuelve la colisión en el mismo frame en que se la teletransporta fuera, Jolt lee
-## ese salto como movimiento cinemático y la cápsula barre el vehículo de dentro afuera: medido, un
-## pico de 220 m/s que mandaba el tanque por los aires y lo hundía en el suelo.
+## The player's capsule follows the seat inside the hull with collision disabled. If collision is
+## restored in the same frame as the teleport out, Jolt interprets the jump as kinematic motion and
+## sweeps the capsule through the vehicle from inside to outside. This produced a measured 220 m/s
+## spike that launched the tank into the air and drove it into the ground.
 
 
 func _make_player() -> CharacterBody3D:
@@ -34,7 +34,7 @@ func _run() -> void:
 	root.add_child(player)
 	var tank := VoxelTank3D.spawn(world, Vector3(0, 1.0, 0), player)
 	if tank == null:
-		printerr("TANK_EXIT_KICK_SELFTEST_SKIP no se pudo importar el tanque")
+		printerr("TANK_EXIT_KICK_SELFTEST_SKIP failed to import the tank")
 		quit(0)
 		return
 	for _frame in 90:
@@ -42,29 +42,29 @@ func _run() -> void:
 
 	player.global_position = tank.vehicle.get_seat_position()
 	player.call("_toggle_vehicle")
-	_check(bool(player.call("is_driving_vehicle")), "el jugador conduce el tanque")
+	_check(bool(player.call("is_driving_vehicle")), "the player is driving the tank")
 	for _frame in 60:
 		await physics_frame
 
 	var before_y := tank.vehicle.global_position.y
 	player.call("_toggle_vehicle")
-	_check(not bool(player.call("is_driving_vehicle")), "el jugador se baja")
+	_check(not bool(player.call("is_driving_vehicle")), "the player exits the tank")
 	var exit_position := player.global_position
 	_check(bool(player.call("_vehicle_exit_is_clear", exit_position,
 			[player.get_rid()] as Array[RID])),
-		"la salida elegida no solapa con nada")
+		"the selected exit position does not overlap anything")
 
 	var peak_speed := 0.0
 	for _frame in 90:
 		await physics_frame
 		peak_speed = maxf(peak_speed, tank.vehicle.linear_velocity.length())
-	print("     y antes=%.3f  y despues=%.3f  pico de velocidad=%.3f" % [
+	print("     y before=%.3f  y after=%.3f  peak speed=%.3f" % [
 		before_y, tank.vehicle.global_position.y, peak_speed
 	])
-	_check(peak_speed < 1.5, "el tanque no recibe un empujón al bajarse el conductor")
+	_check(peak_speed < 1.5, "the tank is not pushed when the driver exits")
 	_check(absf(tank.vehicle.global_position.y - before_y) < 0.35,
-		"el tanque no se clava ni salta en cota al bajarse el conductor")
+		"the tank neither sinks nor jumps in height when the driver exits")
 	_check(player.global_position.distance_to(exit_position) < 0.5,
-		"el jugador se queda donde se le dejó, no sale despedido")
-	print("TANK_EXIT_KICK_SELFTEST ", "OK" if failures == 0 else "FALLOS: %d" % failures)
+		"the player stays where they were left instead of being launched")
+	print("TANK_EXIT_KICK_SELFTEST ", "OK" if failures == 0 else "FAILURES: %d" % failures)
 	quit(1 if failures > 0 else 0)

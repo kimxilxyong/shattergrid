@@ -1,11 +1,11 @@
 class_name Blueprints
-## Planos de los edificios destructibles y las primitivas para escribirlos.
+## Blueprints for destructible buildings and the primitives used to create them.
 ##
-## Se escriben en la **rejilla gruesa** (celda = `Vox.BLUEPRINT_CELL`). El importador heredado
-## expande cada celda exactamente una vez a 3x3x3 voxeles de 10 cm.
+## They are written on the **coarse grid** (cell = `Vox.BLUEPRINT_CELL`). The legacy importer
+## expands each cell exactly once into 3x3x3 voxels of 10 cm.
 ##
-## Convención heredada de la rejilla: **`y` nunca es negativa** y lo que deba quedarse en pie tiene
-## que conservar un camino 6-conexo hasta los anclajes de `y == 0`.
+## Legacy grid convention: **`y` is never negative**, and anything that should remain standing must
+## retain a 6-connected path to anchors at `y == 0`.
 
 const K := Vox.Kind
 
@@ -16,7 +16,7 @@ static func of(name: String) -> Dictionary:
 		"casa": coarse = _casa()
 		"torre": coarse = _torre()
 		"fabrica": coarse = _fabrica()
-		_: push_error("plano desconocido: %s" % name)
+		_: push_error("unknown blueprint: %s" % name)
 	return coarse
 
 
@@ -30,7 +30,7 @@ static func solid(v: Dictionary, x: Vector2i, y: Vector2i, z: Vector2i, kind: in
 				v[Vector3i(xi, yi, zi)] = kind
 
 
-## Las cuatro paredes de una caja, sin suelo ni techo.
+## The four walls of a box, without a floor or roof.
 static func shell(v: Dictionary, x: Vector2i, y: Vector2i, z: Vector2i, kind: int) -> void:
 	for xi in range(x.x, x.y + 1):
 		for yi in range(y.x, y.y + 1):
@@ -39,7 +39,7 @@ static func shell(v: Dictionary, x: Vector2i, y: Vector2i, z: Vector2i, kind: in
 					v[Vector3i(xi, yi, zi)] = kind
 
 
-## Una capa horizontal: forjados, cubiertas, calles.
+## A horizontal layer: floors, roofs, streets.
 static func slab(v: Dictionary, y: int, x: Vector2i, z: Vector2i, kind: int) -> void:
 	solid(v, x, Vector2i(y, y), z, kind)
 
@@ -48,9 +48,9 @@ static func column(v: Dictionary, x: int, z: int, y: Vector2i, kind: int) -> voi
 	solid(v, Vector2i(x, x), y, Vector2i(z, z), kind)
 
 
-## Cilindro de sección circular. Con `inner > 0` sale un tubo hueco: torres, chimeneas. Los radios
-## van en celdas y en coma flotante porque los bordes salen mucho mejor con medios: un radio de 2.4
-## da una sección más redonda que uno de 2.
+## Circular cross-section cylinder. With `inner > 0`, it forms a hollow tube for towers or
+## chimneys. Radii are in cells and floating-point because edges look much better with half steps:
+## a radius of 2.4 produces a rounder cross-section than 2.
 static func cylinder(
 	v: Dictionary, cx: int, cz: int, outer: float, inner: float, y: Vector2i, kind: int
 ) -> void:
@@ -64,7 +64,7 @@ static func cylinder(
 				v[Vector3i(cx + dx, yi, cz + dz)] = kind
 
 
-## Vacía un volumen: puertas, portones, ventanales.
+## Carves a volume: doors, gates, windows.
 static func carve(v: Dictionary, x: Vector2i, y: Vector2i, z: Vector2i) -> void:
 	for xi in range(x.x, x.y + 1):
 		for yi in range(y.x, y.y + 1):
@@ -75,7 +75,7 @@ static func carve(v: Dictionary, x: Vector2i, y: Vector2i, z: Vector2i) -> void:
 # MARK: - Planos
 
 
-## Casa de ladrillo con esquinas de madera, ventanales y tejado piramidal macizo.
+## Brick house with wooden corners, large windows, and a solid pyramidal roof.
 static func _casa() -> Dictionary:
 	var v := {}
 	var x := Vector2i(-7, 7)
@@ -89,7 +89,7 @@ static func _casa() -> Dictionary:
 				var on_z := zi == z.x or zi == z.y
 				if not (on_x or on_z):
 					continue
-				# Puerta en la fachada frontal.
+				# Door in the front facade.
 				if zi == z.y and absi(xi) <= 1 and yi <= 3:
 					continue
 				var kind := K.LADRILLO
@@ -102,9 +102,9 @@ static func _casa() -> Dictionary:
 						kind = K.VIDRIO
 				v[Vector3i(xi, yi, zi)] = kind
 
-	# Tejado a niveles, cada uno **macizo**. Con anillos retranqueados cada nivel queda metido un
-	# voxel respecto al de abajo y no llega a tocarlo: el tejado entero flota sobre la casa y se
-	# viene abajo con la primera explosión en cualquier parte.
+	# Tiered roof, each level **solid**. Recessed rings leave each level one voxel in from the one
+	# below, so they do not touch: the entire roof floats above the house and falls with the first
+	# explosion anywhere.
 	var level := 0
 	while true:
 		var lo := Vector2i(x.x - 1 + level, x.y + 1 - level)
@@ -118,7 +118,7 @@ static func _casa() -> Dictionary:
 	return v
 
 
-## Torre de piedra hueca con pisos de madera y almenas alternadas.
+## Hollow stone tower with wooden floors and alternating battlements.
 static func _torre() -> Dictionary:
 	var v := {}
 	var height := 17
@@ -142,8 +142,8 @@ static func _torre() -> Dictionary:
 	return v
 
 
-## Nave industrial con chimenea. Tumba la chimenea sobre la nave: es el escenario que luce la
-## colisión de un trozo desprendido contra lo que sigue en pie.
+## Industrial building with chimney. The chimney falls onto the building, demonstrating collision
+## between a detached piece and what remains standing.
 static func _fabrica() -> Dictionary:
 	var v := {}
 	var x := Vector2i(-11, 11)
@@ -151,14 +151,14 @@ static func _fabrica() -> Dictionary:
 	var eaves := 9
 
 	shell(v, x, Vector2i(0, eaves), z, K.LADRILLO)
-	# Lucernario corrido bajo el alero. Va **antes** que los pórticos para que los pilares lo
-	# atraviesen: al revés, el vidrio sobrescribe el acero en esas dos hiladas y secciona los tres
-	# pilares de cada pórtico, con lo que la cubierta nace sin camino al suelo.
+	# Continuous skylight below the eaves. It goes **before** the frames so their pillars pass
+	# through it; otherwise, glass would overwrite steel on those two rows and cut all three pillars
+	# in every frame, leaving the roof without a path to the ground.
 	solid(v, x, Vector2i(eaves - 2, eaves - 1), Vector2i(z.x, z.x), K.VIDRIO)
 	solid(v, x, Vector2i(eaves - 2, eaves - 1), Vector2i(z.y, z.y), K.VIDRIO)
 
-	# Pórticos de acero cada tres celdas, con pilar central. El de x = 1 se salta para abrir el
-	# hueco por donde entra el portón de carga.
+	# Steel frames every three cells, with a central pillar. Skip x = 1 to open the gap for the
+	# loading gate.
 	for cx in range(x.x, x.y + 1, 3):
 		if cx == 1:
 			continue
@@ -166,18 +166,18 @@ static func _fabrica() -> Dictionary:
 		column(v, cx, 0, Vector2i(0, eaves), K.METAL)
 		column(v, cx, z.y, Vector2i(0, eaves), K.METAL)
 		slab(v, eaves, Vector2i(cx, cx), z, K.METAL)
-		# Correas de madera sobre los pórticos: el combustible.
+		# Wooden purlins over the frames: the fuel.
 		slab(v, eaves + 1, Vector2i(cx, cx), z, K.MADERA)
 	slab(v, eaves + 1, x, Vector2i(z.x, z.x), K.MADERA)
 	slab(v, eaves + 1, x, Vector2i(z.y, z.y), K.MADERA)
-	# Cubierta de teja sobre las correas.
+	# Tile roof over the purlins.
 	slab(v, eaves + 2, x, z, K.TECHO)
 
-	# Portón de carga: el vano llega hasta el alero, sin muro encima.
+	# Loading gate: the opening reaches the eaves, with no wall above it.
 	carve(v, Vector2i(-1, 3), Vector2i(0, eaves), Vector2i(z.y, z.y))
 	slab(v, eaves, Vector2i(-2, 4), Vector2i(z.y, z.y), K.METAL)
 
-	# Chimenea: tubo de ladrillo, macizo en la base para que se apoye de verdad.
+	# Chimney: brick tube, solid at the base so it is genuinely supported.
 	cylinder(v, 17, 0, 2.4, 0.0, Vector2i(0, 1), K.LADRILLO)
 	cylinder(v, 17, 0, 2.4, 1.4, Vector2i(2, 30), K.LADRILLO)
 	return v

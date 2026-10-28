@@ -1,5 +1,5 @@
 extends "res://tests/selftest/selftest.gd"
-## Piezas authored intactas del mismo colapso comparten Body; fragmentos separados por corte no.
+## Intact authored pieces from the same collapse share a Body; fragments separated by a cut do not.
 
 
 func _body(world: VoxelWorld3D, center: Vector3, dimensions: Vector3i,
@@ -25,25 +25,25 @@ func _body(world: VoxelWorld3D, center: Vector3, dimensions: Vector3i,
 
 
 func _run() -> void:
-	print("coalescencia estructural por batch")
+	print("structural coalescence by batch")
 	var world := make_world(false)
 	_body(world, Vector3(-0.2, 2.0, 0.0), Vector3i(4, 1, 1), 42)
 	_body(world, Vector3(0.2, 2.0, 0.0), Vector3i(4, 1, 1), 42)
 	world._pending_structural_coalesce[42] = true
 	world._coalesce_ready_structural_bodies()
 	_check(world.get_dynamic_bodies().size() == 1,
-		"dos piezas authored que aún se tocan usan un solo RigidBody")
+		"two authored pieces that still touch use one RigidBody")
 	_check(world.get_dynamic_bodies()[0].get_total_voxels() == 8,
-		"el merge conserva todo el material")
+		"the merge preserves all material")
 
-	# Dos mitades del mismo volumen con un voxel retirado entre ellas tienen una separación de 10 cm.
-	# CONTACT_MARGIN las volvería a soldar; el linaje obliga a usar solo tolerancia numérica.
+	# Two halves of the same volume, with one removed voxel between them, are 10 cm apart.
+	# CONTACT_MARGIN would weld them again; lineage restricts merging to numerical tolerance.
 	_body(world, Vector3(2.85, 2.0, 0.0), Vector3i(2, 1, 1), 43, 777)
 	_body(world, Vector3(3.15, 2.0, 0.0), Vector3i(2, 1, 1), 43, 777)
 	world._pending_structural_coalesce[43] = true
 	world._coalesce_ready_structural_bodies()
 	_check(world.get_dynamic_bodies().size() == 3,
-		"dos fragmentos del mismo linaje separados por el corte no se vuelven a soldar")
+		"two fragments from the same lineage separated by the cut are not welded together again")
 
 	if failures == 0:
 		print("VOXEL_STRUCTURAL_COALESCENCE_SELFTEST_OK")

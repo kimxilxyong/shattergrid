@@ -1,9 +1,9 @@
 extends SceneTree
-## Que superficies pisables no llegan a Jolt.
+## Which walkable surfaces do not reach Jolt?
 ##
-## Busca voxeles con aire justo encima — o sea, sitios donde se puede poner un pie — y tira un rayo
-## corto de arriba abajo sobre cada uno. Si el rayo no encuentra nada, esa superficie se dibuja pero
-## no se pisa. El fallo se agrupa por material para saber a quien culpar.
+## Find voxels with air directly above them—places where a foot could land—and cast a short ray
+## downward at each one. If the ray hits nothing, the surface is rendered but not walkable. Group
+## failures by material to identify the likely cause.
 
 var MAP := VoxelProjectPaths.teardown_map_path()
 const MUESTRAS_POR_SHAPE := 6
@@ -34,7 +34,7 @@ func _run() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7
 	for body in world.get_children():
-		# Los Bodies con `collide="false"` no deben colisionar: mezclarlos aqui solo ensucia.
+		# Bodies with `collide="false"` must not collide; including them here would only add noise.
 		if not (body is VoxelBody3D) or body.get_physics_body() is RigidBody3D \
 				or not (body as VoxelBody3D).collision_enabled:
 			continue
@@ -63,16 +63,16 @@ func _run() -> void:
 				var block_ok := VoxelBody3D.collision_block_for(shape)
 				bloques_ok[block_ok] = int(bloques_ok.get(block_ok, 0)) + 1
 				var grosor_ok := mini(cells.x, mini(cells.y, cells.z))
-				var clase_ok := "lamina<=2" if grosor_ok <= 2 \
-					else ("fina<=8" if grosor_ok <= 8 else "gorda")
+				var clase_ok := "slab<=2" if grosor_ok <= 2 \
+					else ("thin<=8" if grosor_ok <= 8 else "thick")
 				grosores_ok[clase_ok] = int(grosores_ok.get(clase_ok, 0)) + 1
 				var query := PhysicsRayQueryParameters3D.create(
 					top + Vector3.UP * 0.4, top - Vector3.UP * 0.25
 				)
 				if space.intersect_ray(query).is_empty():
 					fallos[material] = int(fallos.get(material, 0)) + 1
-					# Si el rayo largo si acierta, la colision existe pero esta desplazada; el
-					# desfase dice cuanto y hacia donde.
+					# If the long ray hits, collision exists but is offset; the displacement shows how
+					# far and in which direction.
 					var largo := PhysicsRayQueryParameters3D.create(
 						top + Vector3.UP * 3.0, top - Vector3.UP * 3.0
 					)
@@ -82,7 +82,7 @@ func _run() -> void:
 					else:
 						var desfase: float = hit.position.y - top.y
 						desfases[material] = float(desfases.get(material, 0.0)) + desfase
-					# Existe siquiera el bloque de colision que deberia cubrir este voxel?
+					# Does the collision block that should cover this voxel exist at all?
 					var block := VoxelBody3D.collision_block_for(shape)
 					var macro_dim := shape.data.get_macro_dimensions()
 					var key := "%d:%d:%d:%d" % [shape.get_instance_id(),
@@ -91,13 +91,13 @@ func _run() -> void:
 						sin_bloque[material] = int(sin_bloque.get(material, 0)) + 1
 					bloques[block] = int(bloques.get(block, 0)) + 1
 					var grosor := mini(cells.x, mini(cells.y, cells.z))
-					var clase := "lamina<=2" if grosor <= 2 else ("fina<=8" if grosor <= 8 else "gorda")
+					var clase := "slab<=2" if grosor <= 2 else ("thin<=8" if grosor <= 8 else "thick")
 					grosores[clase] = int(grosores.get(clase, 0)) + 1
 					if not ejemplos.has(material):
 						ejemplos[material] = "%s  %s  hit=%s" % [body.name, top,
-							"nada" if hit.is_empty() else str(hit.position)]
+							"none" if hit.is_empty() else str(hit.position)]
 
-	print("\nsuperficies pisables que NO colisionan, por material")
+	print("\nwalkable surfaces with NO collision, by material")
 	for material in totales:
 		var fallo: int = fallos.get(material, 0)
 		var total: int = totales[material]
@@ -105,11 +105,11 @@ func _run() -> void:
 		var desplazado := fallo - perdido
 		var desfase_medio := 0.0 if desplazado == 0 \
 			else float(desfases.get(material, 0.0)) / float(desplazado)
-		print("  %-12s %5d/%-5d fallan (%4.1f %%)  sin nada=%d  desplazados=%d (media %+0.2f m)"
+		print("  %-12s %5d/%-5d fail (%4.1f %%)  no hit=%d  displaced=%d (average %+0.2f m)"
 			% [material, fallo, total, 100.0 * float(fallo) / float(total),
 			perdido, desplazado, desfase_medio])
-		print("      sin bloque de colision: %d   ej: %s"
+		print("      no collision block: %d   example: %s"
 			% [int(sin_bloque.get(material, 0)), ejemplos.get(material, "")])
-	print("\nfallos por tamano de bloque: ", bloques, "  de un total de ", bloques_ok)
-	print("fallos por grosor de la Shape: ", grosores, "  de un total de ", grosores_ok)
+	print("\nfailures by block size: ", bloques, " of ", bloques_ok)
+	print("failures by Shape thickness: ", grosores, " of ", grosores_ok)
 	quit()

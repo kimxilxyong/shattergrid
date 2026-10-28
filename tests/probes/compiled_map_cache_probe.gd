@@ -1,5 +1,5 @@
 extends SceneTree
-## Mide la misma importación dos veces en procesos distintos:
+## Measure the same import twice in separate processes:
 ##
 ## godot --headless --path . -s tests/compiled_map_cache_probe.gd -- --rebuild-teardown-cache
 ## godot --headless --path . -s tests/compiled_map_cache_probe.gd
@@ -34,8 +34,8 @@ func _run() -> void:
 	camera.position = Vector3(0.0, 10.0, 0.0)
 	camera.current = true
 	world.add_child(camera)
-	# La carga caliente debe devolver el control sin insertar toda la colision en Jolt. Después,
-	# el presupuesto por frame tiene que progresar de verdad alrededor de la cámara.
+	# A warm load must return control without inserting all collision into Jolt. Then, the per-frame
+	# budget must make real progress around the camera.
 	for frame in 6:
 		await process_frame
 	var pending_after_stream := int(

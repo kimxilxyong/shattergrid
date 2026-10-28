@@ -52,10 +52,10 @@ target_include_directories(shattergrid_core PRIVATE native/include)
 target_link_libraries(shattergrid_core PRIVATE godot::cpp)
 target_compile_definitions(shattergrid_core PRIVATE GODOT_CPP_NO_THREAD_LOCAL)
 
-# Un solo directorio de salida para las tres plataformas: el descriptor .gdextension apunta a
-# `native/bin` y no puede seguir subcarpetas por configuracion. `RUNTIME` cubre la DLL de Windows,
-# `LIBRARY` el .dylib/.so. Los generadores multi-config (Visual Studio) necesitan ademas la variante
-# por configuracion o vuelven a escribir en bin/Release.
+# A single output directory for all three platforms: the .gdextension descriptor points to
+# `native/bin` and cannot follow subdirectories by configuration. `RUNTIME` covers the Windows DLL,
+# `LIBRARY` covers the .dylib/.so. Multi-config generators (Visual Studio) also need the
+# by-configuration variant or they write back to bin/Release.
 set_target_properties(shattergrid_core PROPERTIES
 	OUTPUT_NAME "shattergrid_core"
 	LIBRARY_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/native/bin"
@@ -77,7 +77,7 @@ if(APPLE)
 endif()
 
 if(WIN32)
-	# MinGW prefija `lib`; MSVC no. El descriptor declara un unico nombre, asi que se normaliza al
+	# MinGW prefixes `lib`; MSVC does not. The descriptor declares a single name, so normalize it to
 	# de MSVC: shattergrid_core.dll.
 	set_target_properties(shattergrid_core PROPERTIES PREFIX "")
 endif()

@@ -1,9 +1,9 @@
 extends "res://tests/selftest/selftest.gd"
-## Un poste estructural rápido no debe cruzar una chapa/apoyo delgado entre dos physics ticks.
+## A fast structural post must not pass through a thin plate/support between physics ticks.
 
 
 func _run() -> void:
-	print("CCD de postes y fragmentos estructurales")
+	print("CCD for posts and structural fragments")
 	make_box_body(root, Vector3(8.0, 0.04, 8.0))
 
 	var world := VoxelWorld3D.new()
@@ -33,18 +33,18 @@ func _run() -> void:
 		if not body.collision_handoff_pending:
 			break
 	_check(not body.collision_handoff_pending and rigid.continuous_cd,
-		"el poste entra al solver después del handoff con CCD activo")
+		"the post enters the solver with CCD active after the handoff")
 	rigid.linear_velocity = Vector3(0.0, -80.0, 0.0)
 	rigid.sleeping = false
 	var minimum_y := rigid.global_position.y
 	for _frame in 10:
 		await physics_frame
 		minimum_y = minf(minimum_y, rigid.global_position.y)
-	print("  centro mínimo del poste: %.3f m" % minimum_y)
+	print("  minimum post center: %.3f m" % minimum_y)
 	_check(minimum_y > 0.8,
-		"un poste a 80 m/s no atraviesa un apoyo de 4 cm")
+		"a post moving at 80 m/s does not pass through a 4 cm support")
 	_check(rigid.global_position.y > 0.8,
-		"el poste permanece del lado correcto del soporte")
+		"the post remains on the correct side of the support")
 
 	if failures == 0:
 		print("VOXEL_STRUCTURAL_CCD_SELFTEST_OK")

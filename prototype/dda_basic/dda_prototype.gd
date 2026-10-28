@@ -218,13 +218,13 @@ func _process(_delta: float) -> void:
 	_status.text = "DDA espacial · %d instancias · GPU %.2f ms · CPU render %.2f ms\n" % [
 		INSTANCE_COUNT, gpu_ms, cpu_ms
 	]
-	_status.text += "voxeles %d · upload regional %d / %d bytes · cámara %s\n" % [
+	_status.text += "voxels %d · regional upload %d / %d bytes · camera %s\n" % [
 		_shape.get_occupied_count(),
 		_atlas.last_uploaded_bytes,
 		_shape.get_cells().size(),
 		"interior" if _inside else "exterior",
 	]
-	_status.text += "Espacio: cráter · I: cámara interior · V: visualizar pasos DDA"
+	_status.text += "Space: crater · I: interior camera · V: visualize DDA steps"
 
 	if _benchmark and _baseline_frame < 0 and _frame >= WARMUP_FRAMES + SAMPLE_FRAMES:
 		_baseline_frame = 0

@@ -1,8 +1,7 @@
 extends SceneTree
-## Cuanto fusiona de verdad el greedy merge. El area total de las caras dividida entre el area de
-## una cara de voxel da cuantas caras de voxel se estan cubriendo; comparada con el numero de quads
-## emitidos sale el factor de fusion. Si es ~1, no se esta fusionando nada y la malla se puede
-## reducir mucho; si es alto, la malla ya es minima y hay que hornearla o dejar de mallar.
+## How much the greedy merge actually combines. The total face area divided by the area of emitted
+## quads gives the merge factor. If it is ~1, little is being merged and the mesh could be reduced
+## substantially; if it is high, the mesh is already minimal and should be baked or left as is.
 
 var XML := VoxelProjectPaths.teardown_map_path()
 

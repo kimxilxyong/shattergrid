@@ -1,7 +1,7 @@
 extends "res://tests/selftest/selftest.gd"
-## Un `<body dynamic>` de Teardown puede traer varias Shapes en un solo cuerpo rigido. Si el disparo
-## se lleva la del medio, las de los extremos ya no se tocan y tienen que separarse en cuerpos
-## distintos. Sin esto se quedan soldadas, flotando en formacion con el hueco en medio.
+## A Teardown `<body dynamic>` can contain several Shapes in one rigid body. If a shot removes the
+## middle one, the end sections no longer touch and must split into separate bodies. Otherwise they
+## remain welded together, floating in formation with a gap between them.
 
 
 func _add_section(body: VoxelBody3D, origin: Vector3) -> VoxelShape3D:
@@ -21,10 +21,10 @@ func _add_section(body: VoxelBody3D, origin: Vector3) -> VoxelShape3D:
 
 
 func _run() -> void:
-	print("cuerpos con varias Shapes")
+	print("bodies with multiple Shapes")
 	var world := make_world()
 
-	# Tres tramos de tuberia pegados, un solo cuerpo rigido, como los importa el mapa.
+	# Three connected pipe sections in one rigid body, as imported from the map.
 	var pipe := VoxelBody3D.new()
 	pipe.state = VoxelBody3D.State.DYNAMIC
 	world.add_child(pipe)
@@ -34,23 +34,23 @@ func _run() -> void:
 	world.register_body(pipe)
 	for _frame in 5:
 		await physics_frame
-	_check(pipe.get_shapes().size() == 3, "el cuerpo entra con tres tramos")
-	_check(world.get_dynamic_bodies().size() == 1, "y un solo cuerpo rigido")
+	_check(pipe.get_shapes().size() == 3, "the body starts with three sections")
+	_check(world.get_dynamic_bodies().size() == 1, "and a single rigid body")
 
-	# Se revienta el tramo del medio: los extremos dejan de tocarse.
+	# Destroy the middle section: the ends no longer touch.
 	var center := middle.world_bounds().get_center()
 	world.damage_sphere(center, 1.2, 60.0)
 	for _frame in 10:
 		await physics_frame
 		world._process(1.0 / 60.0)
-	print("  tramo del medio: %d voxeles restantes" % (
+	print("  middle section: %d voxels remaining" % (
 		middle.voxel_count() if is_instance_valid(middle) else 0
 	))
 	var bodies := world.get_dynamic_bodies().size()
-	print("  cuerpos dinamicos tras el corte: %d" % bodies)
-	_check(bodies >= 2, "los tramos que ya no se tocan se separan en cuerpos distintos")
+	print("  dynamic bodies after the cut: %d" % bodies)
+	_check(bodies >= 2, "sections that no longer touch split into separate bodies")
 
-	# Y cada cuerpo tiene que caer por su cuenta, no en formacion.
+	# Each body must now fall independently, not in formation.
 	var heights: Array[float] = []
 	for body: VoxelBody3D in world.get_dynamic_bodies():
 		var shapes := body.get_shapes()
@@ -67,11 +67,12 @@ func _run() -> void:
 		if heights[index] - shapes[0].world_bounds().get_center().y > 0.5:
 			moved += 1
 		index += 1
-	print("  cuerpos que cayeron: %d de %d" % [moved, heights.size()])
-	_check(moved >= 2, "y caen, no se quedan flotando")
+	print("  bodies that fell: %d of %d" % [moved, heights.size()])
+	_check(moved >= 2, "and they fall instead of remaining suspended")
 
-	# Y al reves: dos Shapes del mismo cuerpo que NUNCA se tocaron estan soldadas por quien hizo el
-	# mapa. Romper voxeles en una no puede separarlas, porque entre ellas no habia nada que romper.
+	# Conversely, two Shapes in the same body that NEVER touched were welded together by the map
+	# author. Breaking voxels in one must not separate them because there was nothing between them
+	# to break.
 	var welded := VoxelBody3D.new()
 	welded.state = VoxelBody3D.State.DYNAMIC
 	world.add_child(welded)
@@ -85,11 +86,11 @@ func _run() -> void:
 		await physics_frame
 		world._process(1.0 / 60.0)
 	_check(world._body_of(left) == world._body_of(right),
-		"lo que nunca se toco no se separa al recibir un impacto")
+		"parts that never touched do not split when hit")
 
-	# El caso de Lee: el mismo cuerpo de tres tramos, pero con un joint colgando. La retencion del
-	# constraint impedia partirlo, y lo que se veia era medio poste flotando "unido" por el RigidBody
-	# a la mitad que el joint sujetaba.
+	# Lee's case: the same three-section body, but with a hanging joint. The constraint's hold
+	# prevented a split, leaving half a post floating and "connected" by the RigidBody to the half
+	# held by the joint.
 	var jointed := VoxelBody3D.new()
 	jointed.state = VoxelBody3D.State.DYNAMIC
 	world.add_child(jointed)
@@ -106,8 +107,8 @@ func _run() -> void:
 		await physics_frame
 		world._process(1.0 / 60.0)
 	var after := world.get_dynamic_bodies().size()
-	print("  con joint: cuerpos %d -> %d" % [before, after])
-	_check(after > before, "un joint no impide separar los tramos que ya no se tocan")
+	print("  with joint: bodies %d -> %d" % [before, after])
+	_check(after > before, "a joint does not prevent sections that no longer touch from splitting")
 
 	if failures == 0:
 		print("VOXEL_LOOSE_SHAPES_SELFTEST_OK")

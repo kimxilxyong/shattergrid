@@ -6,8 +6,8 @@ signal voxels_changed(shape: VoxelShape3D, world_aabb: AABB, dirty_min: Vector3i
 signal body_split(source: VoxelBody3D, created: Array[VoxelBody3D])
 signal body_unregistered(body: VoxelBody3D)
 signal voxel_impact(center: Vector3, removed_voxels: int, blast_radius: float)
-## Evento semántico anterior al corte voxel. Los mecanismos que reaccionan a una explosión —como
-## una torreta que sale despedida— no tienen que deducir la causa a partir de `voxel_impact`.
+## Semantic event before voxel damage is applied. Mechanisms that react to an explosion (such as a
+## turret being thrown clear) do not have to infer its cause from `voxel_impact`.
 signal explosion_started(center: Vector3, radius: float, energy: float)
 
 const GROUP := "voxel_world"
@@ -17,13 +17,13 @@ const GROUP := "voxel_world"
 @export var show_diagnostics := true
 @export var impact_particles_enabled := true
 @export var physics_impact_damage_enabled := true
-## Auditoria de desarrollo: compara periodicamente el indice incremental contra el flood fill
-## historico. Es deliberadamente opt-in porque materializa todos los indices de Shapes grandes.
+## Development audit: periodically compare the incremental index against the legacy flood fill.
+## This is opt-in because it materializes every index in large Shapes.
 @export var verify_connectivity_in_debug := false
 
 var awake_bodies := 0
 var compound_boxes := 0
-## Las de los cuerpos despiertos, que son las unicas que le cuestan solver a Jolt.
+## Number of compound boxes on awake bodies, the only ones that cost Jolt solver time.
 var awake_compound_boxes := 0
 var collision_rebuild_ms := 0.0
 var retired_bodies := 0
@@ -49,13 +49,13 @@ var damage_detach_ms := 0.0
 var damage_body_ms := 0.0
 var damage_fragments := 0
 var _damage_grounded_by_shape := {}
-## Pares Shape->vecino cuyo contacto material atravesaba el cráter antes del daño actual. Solo esos
-## enlaces se revalidan con tolerancia estricta; los contactos authored alejados conservan la
-## holgura del mapa y no se rompen porque otra zona de la misma Shape recibió un impacto.
+## Shape-to-neighbor pairs whose material contact crossed the crater before the current damage.
+## Revalidate only these links with strict tolerance; distant authored contacts retain the map's
+## clearance and do not break when another area of the same Shape is hit.
 var _damage_cut_contact_pairs := {}
-## Cuántos cuerpos rígidos se crean como mucho en un frame. Dos conserva respuesta inmediata y
-## reparte el tercero: junto al compound de 64 cajas bajó el frame P95 de destrucción de 41,03 a
-## 35,69 ms y la ventana de impacto de 45,58 a 41,27 ms en Lee.
+## Maximum rigid bodies created per frame. Two preserves immediate response and defers the third:
+## with a 64-box compound, this reduced Lee's destruction P95 frame time from 41.03 to 35.69 ms and
+## the impact window from 45.58 to 41.27 ms.
 const FRAGMENTS_PER_FRAME := 2
 var _pending_fragments: Array[Dictionary] = []
 var _pending_support_checks := {}
@@ -79,16 +79,17 @@ var _bodies: Array[VoxelBody3D] = []
 var _dynamic_bodies: Array[VoxelBody3D] = []
 var _dynamic_shapes: Array[VoxelShape3D] = []
 var _dynamic_grid := {}
-## Shape -> isla de contacto en la que nacio, por cuerpo. Ver `_capture_weld_baseline`.
+## Shape -> contact island in which it was created, per Body. See `_capture_weld_baseline`.
 var _weld_baseline := {}
-## Indice inverso de `_contact_cache`: Shape -> quienes la tienen por vecina. Ver `_invalidate_contacts`.
+## Reverse index of `_contact_cache`: Shape -> which Shapes list it as a neighbor. See
+## `_invalidate_contacts`.
 var _contact_users := {}
 var _dynamic_grid_cells := {}
 var _dynamic_grid_transforms := {}
 var _collision_rebuild_queue: Array[VoxelBody3D] = []
 var _collision_rebuild_queued := {}
-## Colisión inicial ya mallada, pendiente de entrar a Jolt según cercanía al jugador. Se conserva por
-## Shape (no por nodo físico) para poder invalidarla exactamente si esa geometría recibe daño.
+## Initial collision mesh waiting to enter Jolt based on distance to the player. Stored per Shape
+## (not per physics node) so it can be invalidated precisely if that geometry is damaged.
 var _baked_collision_queue: Array[Dictionary] = []
 var _baked_collision_pending_blocks := 0
 var _baked_collision_priority_elapsed := 0.0
@@ -101,9 +102,9 @@ var _motion_scan_elapsed := 0.0
 var _particle_pool: VoxelParticlePool
 var _diagnostics: Label
 var _runtime_registry := VoxelRuntimeRegistry.new()
-## Bodies sin simulacion propia cuyas Shapes cambian de transformada desde otro controlador. Las
-## ruedas visuales son el caso principal: su Body auxiliar permanece congelado para no entrar al
-## solver, pero el renderer y la sombra deben seguirlas mientras VehicleWheel3D las anima.
+## Bodies without their own simulation whose Shapes are transformed by another controller. Wheel
+## visuals are the main case: their auxiliary Body stays frozen to avoid the solver, but the
+## renderer and shadows must track them while VehicleWheel3D animates them.
 var _externally_transformed_body_ids := {}
 var _structural_graph := VoxelStructuralGraph.new()
 var _support_planner := VoxelSupportPlanner.new()
@@ -114,8 +115,8 @@ const ACTIVE_MAINTENANCE_INTERVAL := 0.10
 const DYNAMIC_GRID_CELL_SIZE := 8.0
 const BAKED_COLLISION_PREFETCH_RADIUS := 80.0
 const BAKED_COLLISION_FRAME_BUDGET_USEC := 1500
-## Una pieza congelada es peor que un pequeño burst de cocción: se dedica un presupuesto temporal
-## mayor únicamente a retirar los shards antiguos que bloquean handoffs activos.
+## A frozen piece is worse than a small cooking burst: use a larger time budget only to remove old
+## shards blocking active handoffs.
 const COLLISION_HANDOFF_BUDGET_USEC := 5000
 const COLLISION_REBUILD_BUDGET_USEC := 1500
 const BAKED_COLLISION_PRIORITY_INTERVAL := 0.5
@@ -131,8 +132,8 @@ const MOTION_CONTACT_COOLDOWN_MSEC := 220
 const MOTION_SCAN_INTERVAL := 1.0 / 30.0
 
 
-## Fogonazo de boca. Vive en el mundo y no en el arma porque el pool de partículas es del mundo:
-## un cañón no necesita su propio emisor ni su propia luz.
+## Muzzle flash. It belongs to the world, not the weapon, because the particle pool is world-owned:
+## a cannon does not need its own emitter or light.
 func emit_muzzle_blast(
 	origin: Vector3, direction: Vector3, power := 1.0, ground_y := -INF
 ) -> void:
@@ -140,9 +141,9 @@ func emit_muzzle_blast(
 		_particle_pool.emit_muzzle_blast(origin, direction, power, ground_y)
 
 
-## Bola de fuego. Va aparte de `damage_sphere` a propósito: el corte de voxel es la parte física
-## de una explosión y esta es la óptica. Una carga que revienta en el aire, sin nada que romper,
-## tiene que verse igual.
+## Fireball. It is intentionally separate from `damage_sphere`: voxel damage is the physical part of
+## an explosion, and this is the visual effect. A charge detonating in midair, with nothing to
+## destroy, should still look the same.
 func emit_explosion(center: Vector3, radius: float) -> void:
 	if _particle_pool != null and impact_particles_enabled:
 		_particle_pool.emit_explosion(center, radius)
@@ -163,18 +164,18 @@ func _ready() -> void:
 			register_body(child)
 
 
-## Los importadores y tests pueden llenar el mundo en el mismo tick en que lo añaden al árbol,
-## antes de que Godot entregue `_ready`. Mantener la inicialización perezosa aquí evita que ese
-## camino use una configuración distinta o intente leer un Resource nulo.
+## Importers and tests can populate the world on the same tick they add it to the tree, before Godot
+## calls `_ready`. Lazy initialization here prevents that path from using a different configuration
+## or reading a null Resource.
 func ensure_physics_budget() -> VoxelPhysicsBudget:
 	if physics_budget == null:
 		physics_budget = VoxelPhysicsBudget.new()
 	return physics_budget
 
 
-## `make_dynamic()` reemplaza un StaticBody y sus shards con un RigidBody. Los nodos viejos salen al
-## final del frame; hasta entonces el cuerpo nuevo chocaría contra su propia colisión. Esta ruta
-## cubre transiciones completas (torres/postes), complementando el ticket de los detach parciales.
+## `make_dynamic()` replaces a StaticBody and its shards with a RigidBody. Old nodes are freed at the
+## end of the frame; until then, the new body would collide with its own collision. This handles
+## complete transitions (towers/posts), complementing the ticket used for partial detachments.
 func queue_transition_collision_handoff(body: VoxelBody3D) -> void:
 	if body == null or not is_instance_valid(body) or not body.collision_handoff_pending:
 		return
@@ -227,9 +228,9 @@ func register_body(body: VoxelBody3D) -> void:
 	_sync_runtime_body(body)
 
 
-## Que Shapes de un mismo cuerpo se tocaban ANTES de que nadie las tocase. Dos que nunca se tocaron
-## estan soldadas por quien hizo el mapa, no por su geometria, asi que ninguna destruccion puede
-## romper esa union: solo se separa lo que la destruccion ha separado de verdad.
+## Which Shapes in one Body touched BEFORE any were modified. Two Shapes that never touched are
+## welded by the map author, not by their geometry, so destruction cannot break that union; only
+## geometry actually separated by destruction is split.
 func _capture_weld_baseline(body: VoxelBody3D) -> void:
 	var shapes := body.get_shapes()
 	if body.state != VoxelBody3D.State.DYNAMIC or shapes.size() < 2:
@@ -252,8 +253,8 @@ func register_shape(shape: VoxelShape3D) -> void:
 	if not shape.voxels_changed.is_connected(_on_shape_changed.bind(shape)):
 		shape.voxels_changed.connect(_on_shape_changed.bind(shape))
 	if body != null:
-		# Algunos importadores registran el Body antes de añadir todas sus Shapes (ruedas visuales del
-		# vehículo, por ejemplo). Actualizar también su total evita clasificarlo como vacío más tarde.
+		# Some importers register the Body before adding all its Shapes (for example, vehicle wheel
+		# visuals). Update its total as well to avoid classifying it as empty later.
 		_sync_runtime_body(body)
 
 
@@ -261,9 +262,9 @@ func unregister_body(body: VoxelBody3D) -> void:
 	if body == null:
 		return
 	untrack_external_body_transforms(body)
-	# Las ruedas authored viven en un Body visual sin colisión para no contaminar el compound de la
-	# carrocería. Su vida pertenece al vehículo: si la carrocería queda vacía por destrucción, no
-	# pueden permanecer cuatro ruedas fantasma en el renderer ni en la lista dinámica.
+	# Authored wheels live in a visual Body without collision so they do not contaminate the chassis
+	# compound. They belong to the vehicle: if destruction empties the chassis, four ghost wheels
+	# must not remain in the renderer or dynamic-body list.
 	var vehicle_visual := body.get_meta("teardown_vehicle_visual_body") as VoxelBody3D \
 		if body.has_meta("teardown_vehicle_visual_body") else null
 	if vehicle_visual != null:
@@ -271,8 +272,8 @@ func unregister_body(body: VoxelBody3D) -> void:
 		if _bodies.has(vehicle_visual):
 			unregister_body(vehicle_visual)
 		vehicle_visual.queue_free()
-	# Última barrera de ownership. Los consumidores sueltan aquí cualquier referencia que no haya
-	# sido transferida por `body_split`; el Body todavía está vivo mientras corren los callbacks.
+	# Final ownership barrier. Consumers release any reference here that was not transferred by
+	# `body_split`; the Body is still alive while callbacks run.
 	body_unregistered.emit(body)
 	_bodies.erase(body)
 	_dynamic_bodies.erase(body)
@@ -304,16 +305,16 @@ func unregister_body(body: VoxelBody3D) -> void:
 	_apply_runtime_metrics()
 
 
-## Colision estatica bajo demanda. El mapa entero cuesta 15,5 s y el 95 % es geometria donde el
-## jugador no esta: se construye un radio alrededor del punto de entrada antes de soltarlo y el
-## resto se va levantando por cercania, con presupuesto por frame, mientras juega.
-## Los cuerpos que la clipmap tiene que vigilar cada frame. El resto son estaticos y no se mueven.
+## On-demand static collision. The full map takes 15.5 s, and 95% is geometry where the player is
+## not present: build a radius around the entry point before releasing them, then load the rest by
+## proximity under a per-frame budget during play.
+## Bodies the clipmap must track every frame. The rest are static and do not move.
 func get_dynamic_bodies() -> Array[VoxelBody3D]:
 	return _dynamic_bodies
 
 
-## Vista incremental para consumidores por frame. Evita que agua, clipmaps y rejilla recorran todos
-## los props dormidos solo para descartarlos inmediatamente.
+## Incremental view for per-frame consumers. Prevents water, clipmaps, and the grid from scanning
+## every sleeping prop only to discard them immediately.
 func get_awake_dynamic_bodies() -> Array[VoxelBody3D]:
 	var result: Array[VoxelBody3D] = []
 	for body_id: int in _runtime_registry.get_awake_body_ids():
@@ -323,15 +324,15 @@ func get_awake_dynamic_bodies() -> Array[VoxelBody3D]:
 	return result
 
 
-## IDs directos para consumidores nativos por frame. Evita reconstruir Arrays de Nodes en
-## GDScript antes de que el tracker vuelva a recorrerlos.
+## Direct IDs for native per-frame consumers. Avoid rebuilding Arrays of Nodes in GDScript before
+## the tracker iterates them again.
 func get_awake_dynamic_body_ids() -> PackedInt64Array:
 	return _runtime_registry.get_awake_body_ids()
 
 
-## Fuente de transformadas para consumidores visuales. Se mantiene separada de
-## `get_awake_dynamic_body_ids`: un Body visual sin colision no debe inflar los presupuestos Jolt ni
-## el contador de cuerpos despiertos solo para que el renderer pueda seguirlo.
+## Transform source for visual consumers. Kept separate from `get_awake_dynamic_body_ids`: a visual
+## Body without collision must not inflate Jolt budgets or the awake-body count just so the renderer
+## can track it.
 func get_transform_tracked_body_ids() -> PackedInt64Array:
 	var result := get_awake_dynamic_body_ids()
 	for body_id: int in _externally_transformed_body_ids:
@@ -376,9 +377,9 @@ func queue_baked_static_collision(
 	if body == null or shape == null \
 			or body.state == VoxelBody3D.State.DYNAMIC or not body.collision_enabled:
 		return
-	# Una Shape puede ser visualmente densa pero no producir caras fisicas (material atravesable en
-	# una paleta compartida). Un caché válido con cero bloques es un resultado terminado, no una
-	# colisión atrasada: dejar su revisión en cero producía `coherence DESYNC` desde el arranque.
+	# A Shape can be visually dense without producing physical faces (pass-through material in a
+	# shared palette). A valid cache with zero blocks is a completed result, not delayed collision:
+	# leaving its revision at zero caused `coherence DESYNC` from startup.
 	if records.is_empty():
 		body.acknowledge_static_collision_revision(shape)
 		_runtime_registry.set_baked_collision_pending(shape.get_instance_id(), false)
@@ -396,8 +397,8 @@ func queue_baked_static_collision(
 	_sync_runtime_shape(shape, body)
 
 
-## Instala sincrónicamente solo la zona en la que el jugador puede aterrizar al aparecer. Devuelve
-## métricas para separar este coste imprescindible del resto del mapa, que queda en streaming.
+## Synchronously installs only the area where the player can land on spawn. Returns metrics to
+## separate this necessary cost from the rest of the map, which remains streamed.
 func prime_baked_static_collision(center: Vector3, radius: float) -> Dictionary:
 	var started := Time.get_ticks_usec()
 	var installed := 0
@@ -434,9 +435,9 @@ func prime_baked_static_collision(center: Vector3, radius: float) -> Dictionary:
 ## Completes the immutable part of the broad phase while the map is still loading. Otherwise the
 ## first shot has to sort every static Shape before it can even discover what was hit.
 func finalize_spatial_index() -> void:
-	# La indexación toca `_static_grid`: se queda en el hilo principal. El
-	# índice de conectividad, en cambio, solo escribe dentro de su propia VoxelShapeData, así que se
-	# reparte entre los núcleos. Era el 41 % de la carga del mapa medido en serie (8,5 s de 20,6 s).
+	# Indexing accesses `_static_grid`, so it stays on the main thread. The connectivity index only
+	# writes to its own VoxelShapeData and can therefore run across worker threads. It was 41% of map
+	# loading when measured serially (8.5 s out of 20.6 s).
 	var pending := {}
 	for body in _bodies:
 		if not is_instance_valid(body) or body.state == VoxelBody3D.State.DYNAMIC:
@@ -444,31 +445,31 @@ func finalize_spatial_index() -> void:
 		for shape in body.get_shapes():
 			_index_static_shape(shape)
 			if shape.data != null:
-				# Dos Shapes podrían compartir el mismo recurso: una sola tarea por instancia.
+				# Multiple Shapes may share a resource: create one task per instance.
 				pending[shape.data.get_instance_id()] = shape.data
 	if pending.is_empty():
 		return
-	# Se prepara fuera del frame de juego. Las Shapes pequeñas siguen construyéndolo bajo demanda;
-	# las grandes evitan que el primer corte pague el escaneo de todas sus macroceldas.
+	# Build this outside the gameplay frame. Small Shapes still build it on demand; large ones avoid
+	# making the first cut pay to scan all their macro-cells.
 	var shapes := pending.values()
 	var group := WorkerThreadPool.add_group_task(
 		func(index: int) -> void: shapes[index].prepare_connectivity_index(),
 		shapes.size(), -1, true, "voxel_connectivity_index"
 	)
-	# Se espera aquí: un impacto no puede llegar mientras un worker reconstruye el índice.
+	# Wait here: an impact cannot arrive while a worker is rebuilding the index.
 	WorkerThreadPool.wait_for_group_task_completion(group)
 
 
-## La rejilla de Shapes estaticas, que es la que consulta la busqueda de cimiento. No se usa el arbol
-## AABB para eso: la destruccion lo marca sucio y la primera consulta posterior lo reconstruye
-## entero, 2312 Shapes ordenadas — medido, 56 ms por disparo. Una Shape estatica no se mueve, asi que
-## en la rejilla solo hay que meterla una vez y sacarla cuando pasa a dinamica o muere.
+## Grid of static Shapes, used by foundation searches. The AABB tree is not used because destruction
+## marks it dirty, and the next query rebuilds all 2,312 sorted Shapes (measured at 56 ms per shot).
+## Static Shapes do not move, so insert them once and remove them when they become dynamic or are
+## freed.
 func _index_static_shape(shape: VoxelShape3D) -> void:
 	if not is_instance_valid(shape) or not shape.is_inside_tree() or shape.data == null:
 		return
 	_static_grid.insert(shape, shape.world_bounds())
-	# El conteo lineal se paga una sola vez al registrar/importar la Shape, nunca en el frame del
-	# primer disparo. Después el corte nativo descuenta exactamente las raíces que elimina.
+	# Pay the linear count once when registering/importing the Shape, never on the first shot's frame.
+	# Native damage then subtracts exactly the foundation voxels it removes.
 	shape.foundation_voxel_count(FOUNDATION_HARDNESS)
 
 
@@ -478,8 +479,8 @@ func damage_sphere(
 ) -> Array[Dictionary]:
 	if String(options.get("cause", "impact")) == "explosion":
 		explosion_started.emit(center, radius, energy)
-	# Varias cargas pueden detonarse en el mismo frame. Comparten epoch para que las piezas authored
-	# que todavía se tocan terminen en un solo Body; daños de frames distintos nunca se sueldan.
+	# Multiple charges can detonate in the same frame. They share an epoch so authored pieces still
+	# touching end up in one Body; damage from different frames is never welded together.
 	_active_damage_epoch = Engine.get_process_frames()
 	_pending_structural_coalesce[_active_damage_epoch] = true
 	var affected: Array[Dictionary] = []
@@ -510,12 +511,12 @@ func damage_sphere(
 	connectivity_skipped = 0
 	damage_impulse_ms = 0.0
 	damage_budget_ms = 0.0
-	# El corte y la reevaluación estructural usan la región exacta del cráter. La banda exterior solo
-	# sirve para el impulso; no debe provocar flood-fills de edificios que no cambiaron.
+	# The cut and structural re-evaluation use the exact crater region. The outer band is only used
+	# for the impulse; it must not trigger flood fills for buildings that did not change.
 	var query_started := Time.get_ticks_usec()
 	var damage_shapes := _query_shapes(center, radius)
-	# La rejilla dinámica se refresca a 10 Hz. Un objeto rápido puede impactar ya fuera de su celda
-	# anterior; los dos Bodies entregados por el solver se añaden explícitamente para no perderlo.
+	# The dynamic grid refreshes at 10 Hz. A fast object may impact outside its previous cell, so add
+	# both Bodies reported by the solver explicitly to avoid missing it.
 	for extra_variant: Variant in options.get("extra_bodies", []):
 		var extra := extra_variant as VoxelBody3D
 		if extra == null or not is_instance_valid(extra):
@@ -523,9 +524,9 @@ func damage_sphere(
 		for extra_shape in extra.get_shapes():
 			if not damage_shapes.has(extra_shape):
 				damage_shapes.append(extra_shape)
-	# Algunos impactos tienen un dueño material inequívoco. El frontal de un coche debe abrir la
-	# pared blanda que tiene delante, no horadar su propia carrocería con la misma esfera. El filtro
-	# se aplica después de incorporar los Bodies del solver para no depender de la rejilla a 10 Hz.
+	# Some impacts have an unambiguous material owner. A car's front should break the soft wall in
+	# front of it, not punch through its own body with the same sphere. Apply the filter after adding
+	# solver-reported Bodies so it does not depend on the 10 Hz grid.
 	var only_body_ids := {}
 	for only_variant: Variant in options.get("only_bodies", []):
 		var only_body := only_variant as VoxelBody3D
@@ -546,8 +547,8 @@ func damage_sphere(
 	var support_seed_map := {}
 	var finalized_impulse_bodies := {}
 	var seed_started := Time.get_ticks_usec()
-	# El cambio invalida la cache al emitir `voxels_changed`. Se guardan antes los dos extremos de
-	# cada enlace que puede desaparecer para que una viga fuera del radio también se reevalúe.
+	# The change invalidates the cache by emitting `voxels_changed`. Save both ends of each link that
+	# may disappear beforehand so a beam outside the radius is reevaluated too.
 	for candidate in damage_shapes:
 		var candidate_body := _body_of(candidate)
 		if candidate_body == null or candidate_body.state != VoxelBody3D.State.STATIC \
@@ -582,23 +583,22 @@ func damage_sphere(
 		damage_particles_ms += (Time.get_ticks_usec() - particle_started) / 1000.0
 		var split_started := Time.get_ticks_usec()
 		var created: Array[VoxelBody3D] = []
-		# Perder material de raíz exige reclasificar aunque quede una sola isla; contener roca en otra
-		# zona no. Forzar el flood-fill en cada cráter superficial del terreno costaba 107 ms.
+		# Losing root material requires reclassification even if only one island remains; removing
+		# rock from another area does not. Forcing a flood fill for every shallow terrain crater cost 107 ms.
 		var should_classify := bool(damage.get("should_classify", false))
 		damage_connectivity_guard_ms += float(damage.get("guard_usec", 0)) / 1000.0
 		if should_classify:
 			created = _split_disconnected(body, shape, center, radius)
-			# `_split_disconnected` ya decidió todas las componentes afectadas de esta Shape y sus
-			# rutas externas. Volver a pasar la Shape fuente por `_drop_unsupported` repetía un BFS
-			# voxel-a-voxel inmediatamente después (hasta 4,6 ms medidos). Se conservan las semillas
-			# vecinas capturadas antes del daño: ellas son las que pueden haber perdido este apoyo.
+			# `_split_disconnected` has already decided all affected components of this Shape and
+			# their external paths. Passing the source Shape through `_drop_unsupported` again repeated
+			# a voxel-by-voxel BFS immediately afterward (measured at up to 4.6 ms). Keep the neighbor
+			# seeds captured before damage; they are the ones that may have lost this support.
 			support_seed_map.erase(shape.get_instance_id())
 		else:
 			connectivity_skipped += 1
 		damage_split_ms += (Time.get_ticks_usec() - split_started) / 1000.0
-		# Y si el cuerpo era un `<body dynamic>` de varias Shapes, puede haber quedado partido en dos
-		# islas soldadas al mismo cuerpo rigido. Eso es lo que dejaba tramos de tuberia flotando en
-		# formacion con un hueco en medio.
+		# A multi-Shape `<body dynamic>` may also have split into two islands still joined to the same
+		# rigid body. This previously left pipe sections floating in formation with a gap between them.
 		var loose := _split_loose_shapes(body)
 		if not loose.is_empty():
 			created.append_array(loose)
@@ -607,10 +607,10 @@ func damage_sphere(
 			body, shape, created, was_static, center, radius, finalized_impulse_bodies
 		)
 		affected.append({"shape": shape, "damage": damage, "new_bodies": created})
-		# Una Shape dinámica puede vaciarse por completo en un segundo impacto. Su compound anterior
-		# seguía vivo hasta el rebuild diferido (y, si era la única Shape, el Body nunca desaparecía):
-		# en Lee observamos un fantasma de 0 voxeles, 56 cajas y 7 t. La fuente estática espera al
-		# handoff; una fuente ya dinámica no protege ninguna colisión vieja y se limpia aquí.
+		# A dynamic Shape can be emptied completely by a second impact. Its old compound remained
+		# until the deferred rebuild (and if it was the only Shape, the Body never disappeared):
+		# in Lee, we observed a ghost with 0 voxels, 56 boxes, and 7 tonnes. A static source waits for
+		# handoff; an already dynamic source protects no old collision and is cleaned up here.
 		if not was_static and is_instance_valid(shape) and shape.voxel_count() == 0:
 			_cleanup_empty_source(shape)
 	var support_seeds: Array[VoxelShape3D] = []
@@ -620,16 +620,16 @@ func damage_sphere(
 	if _pending_fragments.is_empty():
 		_drop_unsupported(support_seeds)
 	else:
-		# Una continuación que toca el cuarto fragmento todavía parece una cadena estática sin raíz.
-		# Soltarla aquí la convierte en otro RigidBody antes de que el fragmento diferido pueda reclamarla.
+		# A continuation touching the fourth fragment still looks like a rootless static chain.
+		# Dropping it here would create another RigidBody before the deferred fragment can claim it.
 		for support_shape in support_seeds:
 			_pending_support_checks[support_shape.get_instance_id()] = {
 				"shape": support_shape, "epoch": _active_damage_epoch,
 			}
 	var impulse_started := Time.get_ticks_usec()
 	var impulse_bodies := {}
-	# El radio de impulso es mayor que el de corte, pero sigue siendo local. Recorrer todos los
-	# Bodies importados y leer el centro de masa de cada RigidBody costaba ~200 ms por disparo.
+	# The impulse radius is larger than the cut radius, but is still local. Iterating all imported
+	# Bodies and reading each RigidBody's center of mass used to cost about 200 ms per shot.
 	for shape in nearby_shapes:
 		var impulse_body := _body_of(shape)
 		if impulse_body != null and impulse_body.state == VoxelBody3D.State.DYNAMIC:
@@ -637,13 +637,13 @@ func damage_sphere(
 	for body: VoxelBody3D in impulse_bodies:
 		if finalized_impulse_bodies.has(body.get_instance_id()):
 			continue
-		# `apply_explosion_impulse` despierta únicamente si el centro de masa recibe impulso. Antes se
-		# despertaba primero por mero solape de AABB: un cable/poste largo a nueve metros podía entrar
-		# al solver aunque su centro estuviera fuera de la onda, multiplicando Bodies durante el
-		# colapso. Si la Shape fue dañada, su señal ya despertó el Body; si era estática, el finalizador
-		# creó y despertó el fragmento. No se pierde ninguna transición estructural.
-		# El empuje sale del tamaño de la onda, no de `energy`: desde que `energy` es penetración
-		# frente a la dureza vive en torno a 1, y usarla aquí dejaba los escombros quietos.
+		# `apply_explosion_impulse` wakes a body only if its center of mass receives an impulse.
+		# Previously, mere AABB overlap woke it first: a long cable/post nine meters away could enter
+		# the solver even when its center was outside the blast, multiplying Bodies during collapse.
+		# If the Shape was damaged, its signal already woke the Body; if it was static, the finalizer
+		# created and woke the fragment. No structural transition is lost.
+		# Push comes from blast size, not `energy`: since `energy` represents penetration against
+		# hardness and is around 1, using it here left debris motionless.
 		body.apply_explosion_impulse(center, radius * 5.0, radius * 3.0)
 	damage_impulse_ms = (Time.get_ticks_usec() - impulse_started) / 1000.0
 	var budget_started := Time.get_ticks_usec()
@@ -657,8 +657,9 @@ func damage_sphere(
 	return affected
 
 
-## Cola un choque físico sin mutar Shapes durante `_integrate_forces`. Dos RigidBodies informan el
-## mismo contacto desde lados opuestos; la clave canónica los fusiona y conserva el impulso mayor.
+## Queues a physical collision without mutating Shapes during `_integrate_forces`. Two RigidBodies
+## report the same contact from opposite sides; the canonical key merges them and keeps the larger
+## impulse.
 func queue_physics_impact(
 	source: VoxelBody3D, collider: Object, point: Vector3,
 	impulse: float, relative_speed: float
@@ -670,8 +671,8 @@ func queue_physics_impact(
 	var target := _voxel_body_from_collision_object(collider)
 	if target == source:
 		return
-	# El suelo base, un StaticBody no voxel y los raycasts de las ruedas no son objetivos de daño.
-	# Descartarlos aquí evita incluso construir la clave/cola en cada bache de la carretera.
+	# The base ground, non-voxel StaticBodies, and wheel raycasts are not damage targets. Discarding
+	# them here avoids even building a queue key for every bump in the road.
 	if source.get_physics_body() is VoxelVehicle3D and target == null:
 		return
 	_physics_impact_queue.enqueue(
@@ -693,8 +694,8 @@ func _process_physics_impacts() -> void:
 	var frame_damage_ms := 0.0
 	while processed < PHYSICS_IMPACTS_PER_FRAME and not _physics_impact_queue.is_empty():
 		var record: Dictionary = _physics_impact_queue.pop_front()
-		# Un impacto puede esperar varios frames; mientras tanto la destrucción puede retirar el Body.
-		# Castear directamente el Variant que apunta al Node liberado falla antes de poder comprobar null.
+		# An impact may wait several frames, during which destruction can remove the Body. Casting the
+		# Variant pointing to the freed Node directly fails before a null check can run.
 		var source_variant: Variant = record.source
 		if not is_instance_valid(source_variant):
 			continue
@@ -715,9 +716,9 @@ func _process_physics_impacts() -> void:
 		var radius := float(profile.radius)
 		var penetration := float(profile.penetration)
 		var vehicle_impact := bool(profile.vehicle)
-		# Mismo criterio que `queue_physics_impact`: un vehículo solo daña al cuerpo que embistió. Si
-		# la destrucción liberó ese cuerpo mientras el impacto esperaba turno, ya no queda nada que
-		# romper y la esfera sin `only_bodies` mordería el propio casco del que embiste.
+		# Same rule as `queue_physics_impact`: a vehicle damages only the body it hit. If destruction
+		# removed that body while the impact was queued, there is nothing left to break, and a sphere
+		# without `only_bodies` would damage the attacking vehicle's own chassis.
 		if vehicle_impact and target == null:
 			continue
 		var extra_bodies: Array[VoxelBody3D] = [source]
@@ -729,8 +730,8 @@ func _process_physics_impacts() -> void:
 			"kind": "vehicle" if vehicle_impact else "body",
 			"strength": float(profile.strength),
 		}
-		# Cuenta el intento antes del daño: material indestructible también consumió una consulta y no
-		# puede abrir la compuerta para vaciar los 16 eventos de la cola en un solo frame.
+		# Count the attempt before damage: indestructible material still consumed a query and must not
+		# open the gate to drain all 16 queued events in one frame.
 		processed += 1
 		var started := Time.get_ticks_usec()
 		var damage_options := {
@@ -751,10 +752,10 @@ func _process_physics_impacts() -> void:
 			break
 
 
-## Perfil material del choque. Para cuerpos ordinarios conserva la curva existente y el daño
-## bidireccional. Un vehículo necesita despejar aproximadamente el ancho de su frontal en madera a
-## velocidad urbana: la masa aporta energía y `strength` del XML gradúa el radio, mientras que la
-## dureza del material todavía reduce el alcance dentro de `damage_sphere_material`.
+## Material impact profile. Ordinary bodies retain the existing curve and bidirectional damage.
+## A vehicle must clear roughly the width of its front in wood at city speed: mass contributes
+## energy and XML `strength` scales the radius, while material hardness still reduces range inside
+## `damage_sphere_material`.
 static func physics_impact_profile(
 	source: VoxelBody3D, impulse: float, normal_speed: float
 ) -> Dictionary:
@@ -796,9 +797,9 @@ static func physics_impact_profile(
 	}
 
 
-## Follaje y decorado `unphysical` no generan caras Jolt para que el jugador pueda atravesarlos.
-## Esta pasada exacta y acotada conserva la interacción destructiva: una torre veloz consulta solo
-## Shapes estáticas cuyo AABB toca y confirma contacto voxel en C++ antes de generar el impacto.
+## Foliage and `unphysical` scenery do not generate Jolt faces, allowing the player to pass through.
+## This exact, bounded pass preserves destructive interaction: a fast tower queries only static
+## Shapes whose AABBs it touches, then confirms voxel contact in C++ before generating an impact.
 func _physics_process(delta: float) -> void:
 	if not physics_impact_damage_enabled:
 		return
@@ -870,39 +871,39 @@ func get_metrics() -> Dictionary:
 	}
 
 
-## Lo que ya no llega al suelo tiene que caer, y ese es literalmente el modelo de Teardown: no hay
-## analisis de tensiones — "if you knock down all the walls of a house but there's one voxel still
-## standing, it will stay up" —, solo se pregunta si el trozo sigue conectado al cimiento, y esa
-## conexion es INDIRECTA: su `IsBodyJointedToStatic` la define como "either by being static itself or
-## by being directly or indirectly jointed to something static".
+## Anything no longer connected to the ground must fall; that is literally Teardown's model: there
+## is no stress analysis ("if you knock down all the walls of a house but there's one voxel still
+## standing, it will stay up"). The only question is whether a piece remains connected to a
+## foundation, and that connection is INDIRECT: `IsBodyJointedToStatic` defines it as "either by
+## being static itself or by being directly or indirectly jointed to something static".
 ##
-## Aqui el cimiento es la roca. El suelo de Teardown es `rock`, dureza 1e6, que no se rompe con nada,
-## asi que una Shape con roca viva dentro es ancla por definicion. Todo lo demas necesita una cadena
-## de contactos reales hasta una de ellas.
+## Here, rock is the foundation. Teardown ground is `rock`, hardness 1e6, and cannot be destroyed,
+## so a Shape containing live rock is a foundation by definition. Everything else needs a chain of
+## real contacts leading to one.
 ##
-## Sin esto nada del mapa caia nunca: toda Shape importada entra con `anchored = false`, y una Shape
-## no anclada que sigue siendo una sola isla conectada sale de `_split_disconnected` sin mirar nada.
-## Una seccion de tuberia, una reja y una torre son cada una UNA isla.
+## Without this, nothing in the map ever fell: every imported Shape has `anchored = false`, and an
+## unanchored Shape that remains one connected island exits `_split_disconnected` without any checks.
+## A pipe section, fence, and tower are each a single island.
 ##
-## No hay regla de tamano. La habia -"lo mas grande de 30 m es terreno"- y era lo que dejaba tu torre
-## clavada en el aire: la envolvente de una Shape girada se hincha, y en Lee 34 Shapes pasaban de 30 m
-## de caja sin ser terreno, con AABB cubicas de 44 y 51 m de lado. Medido. El terreno no necesita esa
-## regla porque ya es roca: 516 Shapes del mapa la cumplen por material.
+## There is no size rule. There used to be one—"anything larger than 30 m is terrain"—and it left a
+## tower suspended in the air: a rotated Shape's bounds expand, and in Lee 34 non-terrain Shapes
+## exceeded 30 m, with cubic AABBs 44 and 51 m across. Measured. Terrain needs no such rule because
+## it is already rock: 516 map Shapes qualify by material.
 const FOUNDATION_HARDNESS := 1000.0
-## Holgura de autor entre Shapes distintas. Lee coloca algunas piezas que forman un único objeto
-## (por ejemplo el mástil y la cabeza de la torre eléctrica) con hasta 12 cm entre sus rejillas.
-## Reducir este margen global separa el objeto antes de tiempo y deja su handoff esperando dos
-## cuerpos que deberían caer como uno.
+## Authored clearance between separate Shapes. Lee places some pieces that form one object (for
+## example, the mast and head of the power tower) up to 12 cm apart on their grids. Reducing this
+## global margin separates the object prematurely and leaves its handoff waiting for two bodies
+## that should fall as one.
 const CONTACT_MARGIN := 0.12
-## Un componente recién clasificado dentro de una Shape ya no tiene holgura de autor: sus voxeles
-## vienen de la misma rejilla exacta. Usar aquí los 12 cm globales puentea una celda recién borrada y
-## hace que una reja siga "tocando" el pilar después de volar su unión.
+## A newly classified component within a Shape has no authored clearance: its voxels come from the
+## same exact grid. Using the global 12 cm margin here bridges a newly removed cell and makes a fence
+## continue "touching" a pillar after their connection is destroyed.
 const COMPONENT_CONTACT_MARGIN := 0.09
 
 var _static_grid := VoxelShapeGrid.new()
-## Shape id -> cantidad exacta de voxeles de raíz todavía vivos.
-## Contactos ya calculados, por id de Shape. Entre dos Shapes estaticas el contacto no cambia si no
-## se rompe una de las dos, y en una partida se dispara muchas veces en la misma esquina.
+## Shape id -> exact number of live root voxels.
+## Cached contacts, keyed by Shape ID. Contacts between two static Shapes remain unchanged unless
+## one is damaged, and the same corner is hit repeatedly during a session.
 var _contact_cache := {}
 var _support_searches := 0
 var support_search_ms := 0.0
@@ -916,8 +917,8 @@ var support_foundation_tests := 0
 var support_foundation_ms := 0.0
 
 
-## `true` si la Shape todavía contiene material de cimiento vivo. El tamaño, la AABB y el contacto
-## de colisión no convierten una pieza en raíz.
+## `true` if the Shape still contains live foundation material. Size, AABB, and collision contact
+## do not make a piece a root.
 func _is_foundation(shape: VoxelShape3D) -> bool:
 	var started := Time.get_ticks_usec()
 	support_foundation_tests += 1
@@ -926,24 +927,24 @@ func _is_foundation(shape: VoxelShape3D) -> bool:
 	return result > 0
 
 
-## Las Shapes estaticas cuyos voxeles vivos tocan de verdad a los de esta. Solapar cajas
-## envolventes no vale como contacto: las AABB de un barrio entero se solapan entre si y todo
-## saldria conectado con todo. La caja solo genera candidatos; `touches` decide.
-## Parte un cuerpo dinamico cuyas Shapes han dejado de tocarse.
+## Static Shapes whose live voxels actually touch this Shape's voxels. Overlapping bounding boxes
+## do not count as contact: AABBs of entire neighborhoods overlap, making everything appear
+## connected to everything else. The box only generates candidates; `touches` makes the decision.
+## Splits a dynamic Body whose Shapes are no longer touching.
 ##
-## Un `<body dynamic="true">` de Teardown puede traer varias Shapes en un unico cuerpo rigido: los
-## tramos de tuberia de Lee vienen de cuatro en cuatro. Si un disparo se lleva una entera, las que
-## quedan siguen soldadas y se quedan flotando en formacion, con el hueco en medio y nadie que las
-## suelte. `_split_disconnected` no lo ve porque solo mira dentro de una Shape.
+## A Teardown `<body dynamic="true">` can contain multiple Shapes in one rigid body: Lee's pipe
+## sections come in groups of four. If a shot removes one completely, the remaining sections stay
+## welded together and float in formation with a gap between them, with nothing to release them.
+## `_split_disconnected` cannot detect this because it only examines one Shape at a time.
 ##
-## Solo corre sobre el cuerpo que acaba de recibir daño y sobre sus propias Shapes, que son unas
-## pocas, asi que no aparece en el perfil.
+## Runs only on the Body that was just damaged and its few Shapes, so it does not show up in the
+## profile.
 func _split_loose_shapes(body: VoxelBody3D) -> Array[VoxelBody3D]:
-	# Un joint NO es motivo para no partir. `is_physics_persistent()` cuenta las retenciones de
-	# constraint, y en Lee 20 de los 40 cuerpos dinamicos multi-Shape tienen una: eran exactamente los
-	# que se quedaban con medio poste flotando, soldado por el RigidBody a la mitad que el joint
-	# sujeta. Lo que si hay que respetar es un vehiculo -sus Shapes son un chasis- y un handoff a
-	# medias, que todavia no tiene colision con la que decidir nada.
+	# A joint is NOT a reason to avoid splitting. `is_physics_persistent()` counts constraint holds,
+	# and in Lee 20 of the 40 multi-Shape dynamic bodies have one: these were exactly the bodies left
+	# with half a post floating, welded by the RigidBody to the half held by the joint. Do preserve a
+	# vehicle (its Shapes form a chassis) and an incomplete handoff, which has no collision to decide
+	# anything yet.
 	if body.state != VoxelBody3D.State.DYNAMIC or body.physics_persistent \
 			or body.collision_handoff_pending or body.get_physics_body() is VoxelVehicle3D:
 		return []
@@ -957,7 +958,7 @@ func _split_loose_shapes(body: VoxelBody3D) -> Array[VoxelBody3D]:
 	if groups.size() < 2:
 		return []
 	var created: Array[VoxelBody3D] = []
-	# El primer grupo se queda con el cuerpo original; los demas estrenan el suyo.
+	# The first group keeps the original Body; each remaining group gets a new one.
 	for index in range(1, groups.size()):
 		var piece := VoxelBody3D.new()
 		piece.name = "%s_suelto%d" % [body.name, index]
@@ -981,8 +982,8 @@ func _split_loose_shapes(body: VoxelBody3D) -> Array[VoxelBody3D]:
 	return created
 
 
-## Agrupa las Shapes de un mismo cuerpo por contacto real entre voxeles, mas las soldaduras de autor
-## que no puede romper nadie. `weld` vacio da el agrupamiento crudo, que es el que fija la linea base.
+## Groups Shapes in the same Body by real voxel contact and unbreakable authored welds. An empty
+## `weld` gives the raw grouping used to establish the baseline.
 func _contact_groups(shapes: Array[VoxelShape3D], weld: Dictionary) -> Array:
 	var edges := PackedInt32Array()
 	for first in shapes.size():
@@ -1004,7 +1005,7 @@ func _linked(a: VoxelShape3D, b: VoxelShape3D, weld: Dictionary) -> bool:
 		return false
 	var key_a := a.get_instance_id()
 	var key_b := b.get_instance_id()
-	# Islas distintas al nacer: nunca se tocaron, asi que no hay geometria que destruir entre ellas.
+	# Islands separate at birth never touched, so there is no geometry between them to destroy.
 	if weld.has(key_a) and weld.has(key_b) and int(weld[key_a]) != int(weld[key_b]):
 		return true
 	return _shapes_touch(a, b)
@@ -1019,23 +1020,23 @@ func _shapes_touch_with_margin(a: VoxelShape3D, b: VoxelShape3D, margin: float) 
 		return false
 	if not a.world_bounds().grow(margin).intersects(b.world_bounds()):
 		return false
-	# `touches` recorre las celdas del volumen sobre el que se llama: se llama sobre el menor.
+	# `touches` scans the cells in the volume it is called on, so call it on the smaller one.
 	var self_smaller := a.voxel_count() <= b.voxel_count()
 	var from := a if self_smaller else b
 	var to := b if self_smaller else a
-	# `touches` espera other -> self, o sea la transformada que lleva un punto del OTRO volumen al
-	# propio. Construirla al reves cuela mientras las dos Shapes estan cerca del origen y se nota a lo
-	# bestia lejos: medido en Lee, una torre de 24 m a 70 m del centro no "tocaba" el suelo que tenia
-	# justo debajo ni con dos metros de margen, y con la transformada buena toca a 12 cm.
+	# `touches` expects other -> self: the transform that maps a point from the OTHER volume into
+	# this one. Reversing it works while both Shapes are near the origin but fails badly at a
+	# distance: in Lee, a 24 m tower 70 m from the center did not "touch" the ground directly below
+	# even with a 2 m margin; with the correct transform, it touches at 12 cm.
 	var relative := from.global_transform.affine_inverse() * to.global_transform
 	return from.data.touches(
 		to.data, relative, from.voxel_size, to.voxel_size, margin, 0
 	)
 
 
-## Une únicamente piezas estructurales nacidas/despertadas por el mismo batch de daño y que todavía
-## conservan contacto voxel. Esto no es un merge por colisión: Bodies de frames distintos o dos
-## fragmentos del mismo volumen separados por el cráter nunca se sueldan.
+## Join only structural pieces created or awakened by the same damage batch that still have voxel
+## contact. This is not a collision-based merge: Bodies from different frames, or two fragments of
+## the same volume separated by the crater, are never welded together.
 func _coalesce_ready_structural_bodies() -> void:
 	for epoch_variant: Variant in _pending_structural_coalesce.keys():
 		var epoch := int(epoch_variant)
@@ -1053,9 +1054,9 @@ func _coalesce_ready_structural_bodies() -> void:
 					or body.get_total_voxels() == 0:
 				continue
 			candidates.append(body)
-		# Se agrupa antes de liberar los handoffs. Todos los compounds ya existen y el host se vuelve a
-		# cocinar una vez al absorber; esperar a que cada Body reciba su impulso los separa físicamente
-		# durante el mismo frame y hace imposible reconocer después que eran una sola torre.
+		# Group before releasing handoffs. All compounds already exist, and the host is rebuilt once
+		# after absorption; waiting until every Body receives its impulse separates them physically
+		# during the same frame and makes it impossible to recognize them later as one tower.
 		var unassigned := candidates.duplicate()
 		while not unassigned.is_empty():
 			var group: Array[VoxelBody3D] = [unassigned.pop_back()]
@@ -1086,8 +1087,8 @@ func _coalesce_ready_structural_bodies() -> void:
 func _structural_bodies_touch(a: VoxelBody3D, b: VoxelBody3D) -> bool:
 	if a == b:
 		return false
-	# Solo se reagrupa una familia que ya compartió Body antes de este corte. Dos edificios o dos
-	# cascotes que simplemente chocaron durante la misma explosión nunca se sueldan.
+	# Regroup only a family that shared a Body before this cut. Two buildings or debris pieces that
+	# merely collide during the same explosion are never welded together.
 	var family_a := int(a.get_meta("structural_family", -1))
 	if family_a < 0 or family_a != int(b.get_meta("structural_family", -2)):
 		return false
@@ -1097,8 +1098,8 @@ func _structural_bodies_touch(a: VoxelBody3D, b: VoxelBody3D) -> bool:
 		for shape_b in b.get_shapes():
 			if shape_b.voxel_count() == 0:
 				continue
-			# Mismo linaje = partes del mismo volumen cortado: tolerancia numérica solamente. Linajes
-			# distintos = piezas authored cuya colocación admite CONTACT_MARGIN.
+			# Same lineage means parts of the same cut volume: numerical tolerance only. Different
+			# lineages mean authored pieces whose placement allows CONTACT_MARGIN.
 			var same_lineage := shape_a.structural_lineage != 0 \
 				and shape_a.structural_lineage == shape_b.structural_lineage
 			var margin := 0.005 if same_lineage else CONTACT_MARGIN
@@ -1131,12 +1132,11 @@ func _static_contacts(shape: VoxelShape3D) -> Array[VoxelShape3D]:
 		var body := _body_of(candidate)
 		if body == null or body.state != VoxelBody3D.State.STATIC:
 			continue
-		# Se recorre el volumen mas pequeno de los dos: `touches` itera las celdas de aquel sobre el
-		# que se llama.
+		# Scan the smaller of the two volumes: `touches` iterates the cells of the receiver.
 		var self_smaller := shape.voxel_count() <= candidate.voxel_count()
 		var from := shape if self_smaller else candidate
 		var to := candidate if self_smaller else shape
-		# other -> self, igual que en `_shapes_touch`: al reves el contacto falla a distancia.
+		# other -> self, as in `_shapes_touch`; reversing it makes distant contacts fail.
 		var relative := from.global_transform.affine_inverse() * to.global_transform
 		var contact_margin := COMPONENT_CONTACT_MARGIN \
 			if _damage_cut_contact_pairs.has(_contact_pair_key(shape, candidate)) \
@@ -1165,9 +1165,9 @@ func _static_contacts(shape: VoxelShape3D) -> Array[VoxelShape3D]:
 		"contacts": result,
 		"contact_revisions": contact_revisions,
 	}
-	# Indice inverso: quien tiene a cada vecino en SU lista. Un contacto es de dos, pero la cache es
-	# por Shape y `_reaches_foundation` corta en cuanto descubre cimiento, asi que el vecino puede
-	# quedarse sin entrada propia para siempre.
+	# Reverse index: which Shapes have each neighbor in THEIR list. A contact has two endpoints, but
+	# the cache is per Shape and `_reaches_foundation` stops as soon as it finds a foundation, so a
+	# neighbor could otherwise remain without its own entry forever.
 	for neighbour in result:
 		var neighbour_key := neighbour.get_instance_id()
 		var users: Dictionary = _contact_users.get(neighbour_key, {})
@@ -1201,9 +1201,8 @@ func _contact_cache_entry_valid(shape: VoxelShape3D, entry: Dictionary) -> bool:
 	return true
 
 
-## Contactos materiales que atraviesan únicamente la región que va a cambiar. Sirve para guardar
-## los dos extremos de aristas que el cráter puede borrar sin recorrer todos los contactos de una
-## Shape de terreno de cientos de metros.
+## Material contacts that cross only the region about to change. Saves both endpoints of edges the
+## crater may remove without scanning every contact on a terrain Shape hundreds of meters wide.
 func _local_static_contacts(
 	shape: VoxelShape3D, world_center: Vector3, radius: float
 ) -> Array[VoxelShape3D]:
@@ -1236,8 +1235,8 @@ func _local_static_contacts(
 	return result
 
 
-## Busca cimiento desde `shape` saltando de contacto en contacto. Devuelve las Shapes visitadas y si
-## alguna llega al suelo; asi una sola busqueda resuelve toda la cadena a la vez.
+## Search for a foundation from `shape`, following contact links. Return the visited Shapes and
+## whether any reaches the ground; one search resolves the entire chain.
 func _reaches_foundation(
 	shape: VoxelShape3D, excluded: VoxelShape3D = null
 ) -> Dictionary:
@@ -1324,8 +1323,8 @@ func _component_reaches_external_foundation(
 		damage_component_contact_calls += 1
 		var existing_indices: PackedInt32Array = component.get("indices", PackedInt32Array())
 		var seed_index := int(component.get("seed_index", -1))
-		# Si el enlace atravesaba justo la zona borrada, no puede sobrevivir gracias a la holgura de
-		# importación. Los enlaces alejados son authored y conservan los 12 cm originales.
+		# If the connection crossed the removed area, it must not survive because of import clearance.
+		# Distant authored connections retain the original 12 cm margin.
 		var contact_margin := COMPONENT_CONTACT_MARGIN \
 			if _damage_cut_contact_pairs.has(_contact_pair_key(shape, neighbour)) \
 			else CONTACT_MARGIN
@@ -1344,9 +1343,9 @@ func _component_reaches_external_foundation(
 		contacts_usec += Time.get_ticks_usec() - touch_started
 		if not touches:
 			continue
-		# Aunque el vecino tampoco llegue a fundación, esta componente es su soporte físico. No puede
-		# degradarse a chips por ser pequeña: primero debe nacer como Body y absorber la continuación
-		# (poste de 8 voxeles sosteniendo una cabeza authored de 50).
+		# Even if the neighbor does not reach a foundation, this component is its physical support. It
+		# must not be reduced to chips because it is small: it must first become a Body and absorb the
+		# continuation (an 8-voxel post supporting an authored 50-voxel head).
 		component["external_contact"] = true
 		var neighbour_key := neighbour.get_instance_id()
 		var route_cache_key := "%d:%d" % [shape.get_instance_id(), neighbour_key]
@@ -1358,8 +1357,8 @@ func _component_reaches_external_foundation(
 			var search := _reaches_foundation(neighbour, shape)
 			damage_support_routes_ms += (Time.get_ticks_usec() - route_started) / 1000.0
 			grounded = bool(search.grounded)
-			# Los contactos de varios vecinos suelen converger en la misma isla. Memorizar toda la
-			# visita evita repetir el mismo BFS exacto por cada punto de contacto del edificio.
+			# Contacts from several neighbors often converge on the same island. Cache the entire
+			# traversal to avoid repeating the same exact BFS for every contact point on the building.
 			for visited_key in (search.visited as Dictionary):
 				if int(visited_key) != shape.get_instance_id():
 					grounded_by_shape["%d:%d" % [shape.get_instance_id(), int(visited_key)]] = grounded
@@ -1391,8 +1390,8 @@ func _drop_unsupported(shapes: Array[VoxelShape3D]) -> Array[VoxelBody3D]:
 		_native_static_contact_ids, _native_touches_foundation_directly
 	)
 	_support_searches = int(plan.searches)
-	# Toda isla suelta cae como un solo cuerpo; el commit de Nodes/Jolt permanece aquí y se ejecuta
-	# una vez por cadena ya planificada en C++.
+	# Each loose island falls as a single body; the Nodes/Jolt commit stays here and runs once per
+	# chain already planned in C++.
 	for chain_variant: Variant in plan.chains:
 		var chain: Array[VoxelBody3D] = []
 		for body_variant: Variant in chain_variant as Array:
@@ -1409,9 +1408,9 @@ func _drop_unsupported(shapes: Array[VoxelShape3D]) -> Array[VoxelBody3D]:
 
 
 
-## Suelta una cadena de Shapes estaticas como un solo cuerpo dinamico. El mas grande hace de
-## anfitrion y el compound se reconstruye UNA vez al final. El antiguo corte en 12 convertía una
-## tubería larga de 40 tramos en 40 RigidBody3D precisamente durante el peor frame del colapso.
+## Drop a chain of static Shapes as one dynamic body. The largest acts as the host, and the compound
+## is rebuilt ONCE at the end. The old cutoff at 12 turned a long, 40-section pipe into 40
+## RigidBody3Ds during the worst frame of the collapse.
 
 
 func _merge_dropped_chain(chain: Array[VoxelBody3D]) -> VoxelBody3D:
@@ -1421,8 +1420,8 @@ func _merge_dropped_chain(chain: Array[VoxelBody3D]) -> VoxelBody3D:
 	for body in chain:
 		if body.get_total_voxels() > host.get_total_voxels():
 			host = body
-	# El host todavía no está completo. Cocinar su compound aquí y repetirlo después de absorber las
-	# demás Shapes duplicaba el pico precisamente en el frame del colapso.
+	# The host is not complete yet. Building its compound here and rebuilding it after absorbing the
+	# other Shapes doubled the peak cost in the collapse frame.
 	host.make_dynamic(_box_allowance_for_new_body(), false)
 	host.set_meta("damage_epoch", _active_damage_epoch)
 	_absorb_bodies_into(host, chain)
@@ -1431,8 +1430,8 @@ func _merge_dropped_chain(chain: Array[VoxelBody3D]) -> VoxelBody3D:
 	return host
 
 
-## Transfiere cuerpos authored al mismo componente rígido sin reconstruir la colisión en cada
-## Shape. También es el camino que conserva joints y cables al cambiar de dueño.
+## Transfer authored bodies to the same rigid component without rebuilding collision for every
+## Shape. This also preserves joints and cables when ownership changes.
 func _absorb_bodies_into(host: VoxelBody3D, bodies: Array[VoxelBody3D]) -> void:
 	for body in bodies:
 		if body == host:
@@ -1444,16 +1443,15 @@ func _absorb_bodies_into(host: VoxelBody3D, bodies: Array[VoxelBody3D]) -> void:
 				shape.calibrate_for_dynamic_structure()
 			host.add_voxel_shape(shape, true, false)
 			register_shape(shape)
-		# Lo que colgaba del cuerpo absorbido -joints, cables- tiene que enterarse de quien es ahora
-		# su dueño. Es la misma orden de "transferir" que ya usa el corte de un cuerpo.
+		# Anything attached to the absorbed body—joints and cables—must be notified of its new owner.
+		# This is the same "transfer" event already used when splitting a Body.
 		body_split.emit(body, [host] as Array[VoxelBody3D])
 		unregister_body(body)
 		body.queue_free()
 
 
-## Completa una separación a través de contactos intactos alejados del cráter. Solo se llama cuando
-## ya nació un componente dinámico, así que el barrido completo se paga una vez por desprendimiento,
-## no por impacto superficial.
+## Completes a separation across intact contacts far from the crater. Called only after a dynamic
+## component has been created, so the full scan is paid once per detachment, not per surface impact.
 func _absorb_static_continuations(
 	created: Array[VoxelBody3D], source_body: VoxelBody3D
 ) -> Array[VoxelBody3D]:
@@ -1465,8 +1463,8 @@ func _absorb_static_continuations(
 		var seeds: Array[VoxelShape3D] = []
 		for moving_shape in host.get_shapes():
 			for neighbour in _static_contacts(moving_shape):
-				# El flood-fill interno ya decidió que el remanente del Body fuente está separado. El
-				# margen tolerante entre Shapes no puede volver a soldar a través del voxel recién borrado.
+				# The internal flood fill has already determined that the source Body's remainder is
+				# separate. The tolerant margin between Shapes must not weld across the newly removed voxel.
 				if _body_of(neighbour) == source_body:
 					continue
 				if not claimed.has(neighbour.get_instance_id()):
@@ -1500,9 +1498,9 @@ func _absorb_static_continuations(
 	return all_absorbed
 
 
-## Único commit de un desprendimiento. Tanto la ruta inmediata como la cola diferida llegan aquí
-## con el contexto original; así ninguna continuación estática, señal o impulso depende del número
-## de fragmentos que cupieron en el frame del disparo.
+## The only commit point for a detachment. Both the immediate path and deferred queue arrive here
+## with the original context, so no static continuation, signal, or impulse depends on how many
+## fragments fit in the firing frame.
 func _finalize_detached_bodies(
 	source_body: VoxelBody3D, source_shape: VoxelShape3D,
 	created: Array[VoxelBody3D], source_was_static: bool,
@@ -1555,9 +1553,9 @@ func _finalize_detached_bodies(
 		prioritize_collision_rebuild(source_body)
 	return live
 
-## Corta una componente de su Shape y la convierte en cuerpo rigido. Es lo caro de la destruccion:
-## el corte va en C++ pero crear el nodo, el compound de cajas y el cuerpo de Jolt son ~2,6 ms por
-## trozo, y eso no se optimiza, se reparte.
+## Cuts a component from its Shape and converts it to a rigid body. This is the expensive part of
+## destruction: the cut runs in C++, but creating the node, box compound, and Jolt body costs about
+## 2.6 ms per piece. This cannot be optimized away, so it is spread across frames.
 func _spawn_fragment(shape: VoxelShape3D, indices: PackedInt32Array,
 		retained_anchors: PackedInt32Array, count: int, damage_epoch := -1) -> VoxelBody3D:
 	if not is_instance_valid(shape) or shape.data == null:
@@ -1591,9 +1589,9 @@ func _spawn_fragment(shape: VoxelShape3D, indices: PackedInt32Array,
 	return fragment
 
 
-## Los trozos que no cupieron en el frame de su disparo. Los indices pueden haber quedado obsoletos
-## si esa Shape ha recibido mas dano entretanto: `detach_component_preserving` ignora las celdas que
-## ya son aire, asi que el trozo sale mas pequeno o no sale, y nunca sale mal.
+## Pieces that could not be created during the shot's frame. Their indices may have become stale if
+## the Shape took more damage in the meantime: `detach_component_preserving` ignores cells that are
+## already air, so the piece may be smaller or not appear, but is never incorrect.
 func _flush_pending_fragments() -> void:
 	var made := 0
 	while made < FRAGMENTS_PER_FRAME and not _pending_fragments.is_empty():
@@ -1641,8 +1639,8 @@ func _split_disconnected(
 		var reference := shape.data.find_components_6_with_anchors_reference(reference_anchors)
 		if _component_signatures(components) != _component_signatures(reference):
 			push_error(
-				"DESYNC connectivity: el indice incremental difiere del flood fill en Shape #%d; "
-				+ "se usa el resultado de referencia" % shape.get_instance_id()
+				"DESYNC connectivity: incremental index differs from flood fill in Shape #%d; "
+				+ "using reference result" % shape.get_instance_id()
 			)
 			components = reference
 			connectivity_fallbacks += 1
@@ -1696,8 +1694,8 @@ func _split_disconnected(
 		var component: Dictionary = components[int(decision.component_index)]
 		_ensure_component_indices(shape, component)
 		var indices: PackedInt32Array = component.indices
-		# Las componentes soportadas ya se omitieron. Una componente sin ruta se desprende completa:
-		# conservar voxeles por porcentaje fue lo que arrancaba bases visualmente intactas.
+		# Supported components have already been skipped. A component without a path detaches in full:
+		# retaining voxels by percentage was what removed visually intact foundations.
 		var retained_anchors := PackedInt32Array()
 		var count := indices.size() - retained_anchors.size()
 		if count <= 0:
@@ -1706,8 +1704,8 @@ func _split_disconnected(
 				and not bool(component.get("external_contact", false)):
 			var discarded := shape.detach_component_preserving(indices, retained_anchors)
 			if discarded != null:
-				# La Shape desprendida todavía no pertenece al SceneTree. Las partículas necesitan su
-				# transformada mundial para muestrear centros, así que se conserva explícitamente.
+				# The detached Shape is not in the SceneTree yet. Particles need its world transform to
+				# sample centers, so preserve it explicitly.
 				var discarded_transform := discarded.transform
 				add_child(discarded)
 				discarded.global_transform = discarded_transform
@@ -1716,9 +1714,9 @@ func _split_disconnected(
 				)
 				discarded.queue_free()
 			continue
-		# Los primeros trozos nacen en el acto; el resto espera turno. Crear ocho RigidBody3D con su
-		# compound de cajas en el mismo frame son 37 ms medidos, y lo unico que se ve al repartirlos es
-		# que un cascote tarda un frame de mas en empezar a caer.
+		# The first pieces are created immediately; the rest wait their turn. Creating eight
+		# RigidBody3Ds with box compounds in one frame took 37 ms; when spread out, the only visible
+		# effect is that debris starts falling one frame later.
 		if created.size() >= FRAGMENTS_PER_FRAME:
 			_pending_fragments.append({
 				"shape": shape, "indices": indices, "retained": retained_anchors,
@@ -1772,8 +1770,9 @@ func _ensure_component_indices(shape: VoxelShape3D, component: Dictionary) -> vo
 	damage_component_fill_ms += (Time.get_ticks_usec() - started) / 1000.0
 
 
-## Un joint roto no cambia ni un voxel: ni el planner de daño ni la conectividad vuelven a mirar la
-## pieza que sostenia. Se reevalua su soporte explicitamente o una reja sin uniones se queda flotando.
+## A broken joint does not change any voxels: neither the damage planner nor connectivity checks
+## revisit the piece it supported. Re-evaluate its support explicitly, or a disconnected fence
+## remains floating.
 func queue_support_check(body: VoxelBody3D) -> void:
 	if body == null or not is_instance_valid(body) or body.state != VoxelBody3D.State.STATIC:
 		return
@@ -1783,9 +1782,9 @@ func queue_support_check(body: VoxelBody3D) -> void:
 		_pending_support_checks[shape.get_instance_id()] = {"shape": shape, "epoch": -1}
 
 
-## Un chequeo de soporte diferido solo espera a los fragmentos de su propia oleada de daño o de una
-## anterior. Antes esperaba a que la cola entera se vaciara: con destrucción sostenida y dos
-## fragmentos por frame, ese momento no llegaba nunca y nada se caía.
+## A deferred support check waits only for fragments from its own or an earlier damage wave.
+## Previously, it waited for the entire queue to empty; with sustained destruction and two
+## fragments per frame, that never happened and nothing fell.
 func _flush_ready_support_checks() -> void:
 	if _pending_support_checks.is_empty():
 		return
@@ -1858,8 +1857,8 @@ func _process_collision_handoffs() -> void:
 
 
 func _flush_collision_handoff_budget() -> void:
-	# `size/is_empty` cuentan solo fragmentos todavía congelados. Un ticket ya liberado puede seguir
-	# aquí únicamente para priorizar la reconstrucción física de su origen.
+	# `size/is_empty` count only fragments that are still frozen. A ticket that has already been
+	# released may remain here only to prioritize rebuilding the source's physics.
 	var started := Time.get_ticks_usec()
 	while not _collision_rebuild_queue.is_empty():
 		var selected := _collision_handoffs.select_pending_source() as VoxelBody3D
@@ -1892,9 +1891,9 @@ func _cleanup_empty_source(shape: VoxelShape3D) -> void:
 
 
 func get_physics_coherence_snapshot() -> Dictionary:
-	# El registro mantiene revisiones y estado pendiente al escribir. Antes, esta consulta recorría
-	# cada Shape y, para cada una, volvía a recorrer toda la cola baked: O(shapes * queue) cada 100 ms
-	# justo mientras había cuerpos despiertos. En Lee eran ~2 200 * ~17 000 comparaciones GDScript.
+	# The registry updates revisions and pending state on writes. Previously, this query scanned each
+	# Shape and then the entire baked queue for each one: O(shapes * queue) every 100 ms, while bodies
+	# were awake. In Lee, that meant about 2,200 * 17,000 GDScript comparisons.
 	var snapshot: Dictionary = _runtime_registry.get_coherence_snapshot()
 	if snapshot.get("status") == "DESYNC":
 		var shape := instance_from_id(int(snapshot.get("shape", 0))) as VoxelShape3D
@@ -1929,7 +1928,7 @@ func _recover_desynced_shape(shape: VoxelShape3D, key: int) -> void:
 	shape.recover_unnotified_mutation()
 
 
-## Se calcula solo al solicitar diagnóstico: no añade coste al BFS normal de soporte.
+## Calculated only when diagnostics are requested; it adds no cost to the normal support BFS.
 func get_support_route_trace(shape: VoxelShape3D) -> Array[int]:
 	if shape == null or not is_instance_valid(shape):
 		return []
@@ -1962,8 +1961,8 @@ func _enforce_physics_budget(burst: bool) -> void:
 		physics_budget.target_awake_bodies, physics_budget.burst_awake_bodies,
 		physics_budget.max_active_boxes, physics_budget.max_boxes_per_body, burst
 	)
-	# El censo, suma y ordenación viven en C++. GDScript conserva únicamente las mutaciones de nodos
-	# y Jolt, que deben ocurrir en el hilo principal de acuerdo con el contrato de Godot.
+	# The census, aggregation, and sorting run in C++. GDScript only handles Node and Jolt mutations,
+	# which must run on the main thread under Godot's contract.
 	for body_id: int in plan.simplify_ids:
 		var body := instance_from_id(body_id) as VoxelBody3D
 		if body == null or not is_instance_valid(body):
@@ -1988,10 +1987,10 @@ func _enforce_physics_budget(burst: bool) -> void:
 		if body.is_physics_persistent():
 			continue
 		var was_awake := body.is_awake()
-		# Los fragmentos por debajo del umbral estructural son cosméticos. Si el burst ya rebasa el
-		# techo medido, conservarlos como RigidBody degrada también las piezas importantes; se pasan
-		# inmediatamente al pool visual hasta recuperar presupuesto. No se congela ni simplifica una
-		# componente estructural para ocultar el coste.
+		# Fragments below the structural threshold are cosmetic. If the burst already exceeds the
+		# measured limit, keeping them as RigidBodies also degrades important pieces; move them
+		# directly to the visual pool until budget recovers. Never freeze or simplify a structural
+		# component to hide the cost.
 		if not body.structural:
 			_retire_debris_to_particles(body)
 			plan = _runtime_registry.plan_budget(
@@ -1999,8 +1998,8 @@ func _enforce_physics_budget(burst: bool) -> void:
 				physics_budget.max_active_boxes, physics_budget.max_boxes_per_body, burst
 			)
 			continue
-		# Un prop que lleva dormido desde que se importó no ha interactuado nunca y no cuesta nada:
-		# retirarlo a estática solo lo mataría. Se retira lo que estuvo vivo y acaba de pararse.
+		# A prop that has slept since import has never been interacted with and costs nothing; retiring
+		# it to static would only kill it. Retire bodies that were active and have just stopped.
 		if body.last_interaction_msec == 0 and not was_awake:
 			continue
 		var inactive_long_enough := not body.is_awake() and (
@@ -2018,13 +2017,13 @@ func _enforce_physics_budget(burst: bool) -> void:
 		)
 
 
-## Cajas que puede gastar un cuerpo que acaba de nacer o de volverse dinamico.
+## Box allowance for a newly created or newly dynamic body.
 ##
-## Cuenta solo lo que esta despierto, igual que `_enforce_physics_budget`. Con el total sumaba las
-## 13 903 cajas de los 632 props dormidos de Lee contra un techo de 8 192, o sea siempre negativo, y
-## la reserva salia 1: una torre de 24 m y 9 640 voxeles se volvia dinamica con UNA caja de colision.
-## Ahi estaba el "no cae": el bloque resultante seguia apoyado en el suelo y ademas era el unico que
-## chocaba, asi que ni caia ni se podia tocar de verdad.
+## Count only awake bodies, as `_enforce_physics_budget` does. Counting all bodies included 13,903
+## boxes from Lee's 632 sleeping props against an 8,192 limit, always yielding a negative value.
+## The allowance then became 1: a 24 m tower with 9,640 voxels became dynamic with ONE collision
+## box. That caused the "does not fall" bug: the resulting block remained supported by the ground
+## and was the only collidable part, so it neither fell nor could be hit properly.
 func _box_allowance_for_new_body() -> int:
 	var available := maxi(1, physics_budget.max_active_boxes - awake_compound_boxes)
 	return mini(physics_budget.max_boxes_per_body, available)
@@ -2054,8 +2053,8 @@ func _retire_debris_to_particles(body: VoxelBody3D) -> void:
 
 func _update_metrics() -> void:
 	_apply_runtime_metrics()
-	# La invariante autorreparable consulta solo IDs marcados al escribir. Ya no vuelve a sumar ni a
-	# contar voxeles de cada cuerpo dinámico en cada mantenimiento.
+	# The self-healing invariant checks only IDs marked during writes. It no longer re-sums or counts
+	# the voxels in every dynamic body during each maintenance pass.
 	for body_id: int in _runtime_registry.get_zero_voxel_body_ids():
 		var body := instance_from_id(body_id) as VoxelBody3D
 		if body == null or not is_instance_valid(body):
@@ -2155,14 +2154,15 @@ func _flush_baked_collision_budget() -> void:
 			_sync_runtime_body(body)
 
 
-## Romper voxeles puede deshacer un contacto, asi que se tira la entrada de esa Shape y tambien la de
-## quien la tuviera por vecina: si no, el vecino seguiria creyendose apoyado en ella.
+## Breaking voxels can remove a contact, so discard this Shape's cache entry and those of any Shapes
+## that list it as a neighbor; otherwise a neighbor would still consider itself supported by it.
 ##
-## Las dos direcciones. Mirar solo la lista propia no basta porque `_reaches_foundation` para en
-## cuanto descubre cimiento y no llega a expandir al vecino, asi que un apoyo puede no tener entrada
-## propia mientras lo que aguanta encima si lo tiene en la suya. Le hacias un boquete al apoyo, el
-## contacto dejaba de existir y lo de arriba seguia creyendose apoyado hasta que otro impacto
-## cualquiera le tiraba la cache: era el "no cae hasta que disparo a otra cosa".
+## Invalidate both directions. Checking only this Shape's list is insufficient because
+## `_reaches_foundation` stops as soon as it finds a foundation and may never expand to the neighbor.
+## A support may therefore have no entry of its own even though the object above it does. After a
+## hole was blown in the support, the contact disappeared but the upper object still considered
+## itself supported until another impact cleared the cache: "it won't fall until I shoot something
+## else."
 func _invalidate_contacts(shape: VoxelShape3D) -> void:
 	var key := shape.get_instance_id()
 	var cached := _contact_cache.get(key, {}) as Dictionary
@@ -2242,13 +2242,13 @@ func _sync_runtime_shape(shape: VoxelShape3D, owner: VoxelBody3D = null) -> void
 	)
 
 
-## Broad phase de la destruccion. Antes preguntaba al arbol AABB, y ahi estaba el pico: la
-## destruccion lo marca sucio y la siguiente consulta lo reconstruia entero — medido, 54-59 ms por
-## disparo, mas que todo lo demas junto. Una Shape estatica no se mueve y su envolvente no encoge al
-## romperse voxeles, asi que reconstruir no aportaba nada. La rejilla se indexa una vez.
+## Destruction broad phase. Previously, it queried the AABB tree, causing the performance spike:
+## destruction marks the tree dirty, and the next query rebuilt it in full—measured at 54–59 ms per
+## shot, more than everything else combined. A static Shape does not move, and its bounds do not
+## shrink when voxels break, so rebuilding provided no benefit. Index the grid once.
 ##
-## La rejilla responde por caja y no por esfera: es una banda mas ancha en las esquinas, y no importa
-## porque `damage_sphere` de cada Shape ya devuelve cero cuando el crater no la toca.
+## The grid queries by box, not sphere: this creates a wider band at the corners, which is fine
+## because each Shape's `damage_sphere` already returns zero when the crater does not touch it.
 func _query_shapes(center: Vector3, radius: float) -> Array[VoxelShape3D]:
 	var result := _static_grid.query(AABB(center - Vector3.ONE * radius, Vector3.ONE * radius * 2.0))
 	var low := _dynamic_grid_cell(center - Vector3.ONE * radius)
@@ -2259,8 +2259,8 @@ func _query_shapes(center: Vector3, radius: float) -> Array[VoxelShape3D]:
 			for x in range(low.x, high.x + 1):
 				var bucket: Array = _dynamic_grid.get(Vector3i(x, y, z), [])
 				for shape_variant: Variant in bucket:
-					# La rejilla dinámica se refresca a 10 Hz; una Shape destruida puede seguir en el
-					# bucket unos ticks. Validar el Variant antes del cast evita tocar la instancia libre.
+					# The dynamic grid refreshes at 10 Hz; a destroyed Shape may remain in the bucket
+					# for a few ticks. Validate the Variant before casting to avoid accessing a freed instance.
 					if not is_instance_valid(shape_variant):
 						continue
 					var shape := shape_variant as VoxelShape3D
@@ -2306,8 +2306,8 @@ func _unregister_dynamic_shape(shape: VoxelShape3D) -> void:
 
 
 func _refresh_awake_dynamic_grid() -> void:
-	# Los props importados entran en la rejilla al registrarse y duermen ahi. Solo un cuerpo despierto
-	# puede haber cambiado de sitio, asi que una consulta de daño no recorre las 628 Shapes dormidas.
+	# Imported props enter the grid when registered and sleep there. Only an awake body may have
+	# moved, so a damage query does not scan all 628 sleeping Shapes.
 	for body in get_awake_dynamic_bodies():
 		for shape in body.get_shapes():
 			_update_dynamic_grid_shape(shape)
@@ -2354,8 +2354,8 @@ static func _dynamic_grid_cell(position: Vector3) -> Vector3i:
 func _flush_one_collision_rebuild() -> void:
 	collision_rebuild_ms = 0.0
 	while not _collision_rebuild_queue.is_empty():
-		# Igual que en `flush_one_static_collision_rebuild`: asignar un Object liberado a una variable
-		# tipada revienta antes de llegar a la guarda, asi que se comprueba sobre el Variant.
+		# As in `flush_one_static_collision_rebuild`, assigning a freed Object to a typed variable
+		# fails before reaching the guard, so check the Variant first.
 		var pending: Variant = _collision_rebuild_queue.pop_front()
 		if not is_instance_valid(pending):
 			continue
@@ -2384,10 +2384,9 @@ func _create_diagnostics() -> void:
 	canvas.layer = 90
 	add_child(canvas)
 	_diagnostics = Label.new()
-	# Anclado abajo a la izquierda y creciendo hacia arriba. Con una posicion fija arriba habia que
-	# adivinar cuantas lineas ocupaba el contador de `main.gd`, y en cuanto le crecio la tercera se
-	# solapaban. Desde abajo da igual cuanto crezca cualquiera de los dos; se dejan 40 px para la
-	# linea de ayuda.
+	# Anchor at the bottom left and grow upward. With a fixed position at the top, we had to guess
+	# how many lines the `main.gd` counter used; once it grew to three lines, they overlapped. From
+	# the bottom, either can grow freely; leave 40 px for the help line.
 	_diagnostics.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	_diagnostics.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	_diagnostics.offset_left = 12.0

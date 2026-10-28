@@ -1,6 +1,6 @@
 extends Node3D
-## Prueba gráfica de presión equivalente al mapa pequeño: el renderer arranca con una sola Shape y
-## recibe 520 más en una ráfaga, por encima de las 256 hojas reservadas originales.
+## Visual stress test equivalent to the small map: the renderer starts with one Shape and receives
+## 520 more in a burst, exceeding the original 256 reserved entries.
 
 const FRAGMENT_COUNT := 520
 
@@ -31,7 +31,7 @@ func _ready() -> void:
 	_renderer = VoxelRenderSystem.new()
 	add_child(_renderer)
 	if not _renderer.setup(_world, camera):
-		push_error("No se pudo iniciar el renderer de la prueba de capacidad")
+		push_error("Could not start the renderer for the capacity test")
 		get_tree().quit(90)
 		return
 	_spawn_fragments.call_deferred()

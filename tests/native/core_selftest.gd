@@ -148,8 +148,8 @@ func _init() -> void:
 		quit(1)
 		return
 
-	# El guard local no ve que ambos lados vuelven a unirse por el extremo del rectangulo. El
-	# indice global debe eliminar este falso positivo sin hacer un flood fill denso.
+	# The local guard cannot see that both sides reconnect around the rectangle's end. The global
+	# index must remove this false positive without running a dense flood fill.
 	var detour := VoxelShapeData.new()
 	var detour_size := Vector3i(41, 7, 1)
 	var detour_cells := PackedByteArray()
@@ -185,9 +185,9 @@ func _init() -> void:
 		quit(1)
 		return
 
-	# Regression de la torre: el LOD viejo convertía cualquier voxel ocupado en una celda pitch³ y
-	# luego fusionaba esas celdas, inventando plataformas invisibles. Tres puntos fuerzan pitch 4;
-	# sus cajas deben abrazar solo sus bounds locales (10 cm en Z), no llenar 40 cm de aire.
+	# Tower regression: the old LOD converted every occupied voxel into a pitch³ cell and then
+	# merged those cells, inventing invisible platforms. Three points force pitch 4; their boxes
+	# should cover only their local bounds (10 cm in Z), not fill 40 cm of empty space.
 	var sparse := VoxelShapeData.new()
 	var sparse_dimensions := Vector3i(8, 8, 8)
 	var sparse_cells := PackedByteArray()
@@ -206,7 +206,7 @@ func _init() -> void:
 		quit(1)
 		return
 
-	# Exactitud a través de fronteras 8^3: tres componentes cruzan macroceldas en ejes distintos.
+	# Exactness across 8^3 boundaries: three components cross macrocells on different axes.
 	var macro_shape := VoxelShapeData.new()
 	var macro_cells := PackedByteArray()
 	macro_cells.resize(24 * 24 * 24)

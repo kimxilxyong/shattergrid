@@ -1,7 +1,7 @@
 extends SceneTree
-## Por que el juego va a tirones con la GPU al 10 %: cuanto cuesta un frame en CPU con el mapa
-## entero cargado y el jugador andando. Mide el _process de la clipmap de sombras, que es lo unico
-## que reacciona al movimiento de la camara.
+## Why the game stutters while the GPU is at 10%: measure CPU frame cost with the full map loaded
+## and the player moving. This measures the shadow clipmap's `_process`, the only part that responds
+## to camera movement.
 
 var XML := VoxelProjectPaths.teardown_map_path()
 const FRAMES := 30
@@ -25,10 +25,10 @@ func _initialize() -> void:
 	root.add_child(clipmaps)
 	started = Time.get_ticks_msec()
 	if not clipmaps.setup(world, camera):
-		print("sin RenderingDevice: no se puede medir")
+		print("no RenderingDevice: cannot measure")
 		quit()
 		return
-	print("clipmap inicial %d ms" % (Time.get_ticks_msec() - started))
+	print("initial clipmap %d ms" % (Time.get_ticks_msec() - started))
 
 	var shapes_started := Time.get_ticks_usec()
 	var shapes: Array = clipmaps.call("_all_shapes")
@@ -44,6 +44,6 @@ func _initialize() -> void:
 		var frame_ms := (Time.get_ticks_usec() - frame_started) / 1000.0
 		total += frame_ms
 		worst = maxf(worst, frame_ms)
-	print("clipmap por frame andando: media %.1f ms  peor %.1f ms  -> %.0f fps de techo"
+	print("clipmap per moving frame: avg %.1f ms  worst %.1f ms  -> %.0f fps ceiling"
 		% [total / FRAMES, worst, 1000.0 / maxf(total / FRAMES, 0.001)])
 	quit()

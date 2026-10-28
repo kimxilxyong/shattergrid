@@ -26,8 +26,8 @@ func _run() -> void:
 		body.add_voxel_shape(shape)
 		body.make_dynamic(world.physics_budget.max_boxes_per_body)
 		world.register_body(body)
-	# Mientras el StaticBody anterior todavía está saliendo del PhysicsServer el handoff protege cada
-	# cuerpo del retiro. El presupuesto se aplica después de ese tick, igual que en gameplay.
+	# While the previous StaticBody is still leaving the PhysicsServer, the handoff protects each
+	# body from retirement. The budget is applied after that tick, as it is during gameplay.
 	for _frame in 3:
 		await process_frame
 		await physics_frame

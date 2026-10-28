@@ -1,5 +1,5 @@
 extends SceneTree
-## Contratos de los módulos C++ de mantenimiento, soporte, daño, cables e importación.
+## Contracts for the C++ maintenance, support, damage, cable, and import modules.
 
 var _contacts := {
 	1: PackedInt64Array([2]),

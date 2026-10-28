@@ -63,9 +63,9 @@ Dictionary VoxelTransformTracker::collect(const PackedInt64Array &p_awake_body_i
                 continue;
             }
             shapes.append(shape);
-            // Mientras se mueve se usa la muestra interpolada. En el frame de gracia posterior al
-            // sueño se sella la pose canónica: la interpolación puede conservar para siempre la
-            // muestra anterior si el Body se durmió o fue reparentado entre ticks.
+            // While moving, use the interpolated sample. During the grace frame after
+            // On sleep, seal the canonical pose: interpolation can otherwise retain the previous
+            // sample indefinitely if the Body slept or was reparented between ticks.
             transforms.append(current.count(body_id) != 0
                     ? shape->get_global_transform_interpolated()
                     : shape->get_global_transform());
